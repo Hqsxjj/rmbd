@@ -1,0 +1,28 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "rmbd",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-05-17",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+
+	// KV Namespace 绑定 — 用于存储后台管理面板中的 API Key 等配置
+	// 部署前请运行: wrangler kv namespace create BOT_CONFIG
+	// 然后将返回的 id 填入此处
+	"kv_namespaces": [
+		{
+			"binding": "BOT_CONFIG",
+			"id": "YOUR_KV_NAMESPACE_ID"
+		}
+	],
+
+	// 定时触发器 — 每天北京时间 8:00 (UTC 0:00) 自动推送
+	"triggers": {
+		"crons": ["0 0 * * *"]
+	}
+}
