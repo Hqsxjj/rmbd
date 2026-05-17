@@ -14,31 +14,25 @@
 	// 定时触发器 — 每天北京时间 8:00 (UTC 0:00) 自动推送
 	"triggers": {
 		"crons": ["0 0 * * *"]
-	}
+	},
 
 	// ==========================================
-	// 环境变量配置说明
+	// 环境变量 — 在这里直接填入你的配置
 	// ==========================================
-	// 所有敏感配置均通过 Cloudflare Dashboard 设置，不写入代码。
-	//
-	// 方式一：通过 Dashboard 设置 (推荐)
-	//   Cloudflare Dashboard → Workers & Pages → rmbd → Settings → Variables and Secrets
-	//   添加以下变量（敏感项请选择 "Encrypt" 类型）：
-	//
-	//   MOVIE_PILOT_URL     → 你的 Movie-Pilot 地址
-	//   MOVIE_PILOT_TOKEN   → Movie-Pilot JWT Token (加密)
-	//   TMDB_API_KEY        → TMDB API 密钥 (加密)
-	//   HCTI_API_ID         → HtmlCssToImage API ID
-	//   HCTI_API_KEY        → HtmlCssToImage API Key (加密)
-	//   TG_BOT_TOKEN        → Telegram Bot Token (加密)
-	//   TG_CHAT_ID          → Telegram Chat ID
-	//
-	// 方式二：通过 wrangler CLI 设置 Secret
-	//   npx wrangler secret put MOVIE_PILOT_URL
-	//   npx wrangler secret put MOVIE_PILOT_TOKEN
-	//   npx wrangler secret put TMDB_API_KEY
-	//   npx wrangler secret put HCTI_API_ID
-	//   npx wrangler secret put HCTI_API_KEY
-	//   npx wrangler secret put TG_BOT_TOKEN
-	//   npx wrangler secret put TG_CHAT_ID
+	"vars": {
+		// Movie-Pilot 实例地址，例如: https://mp.example.com
+		"MOVIE_PILOT_URL": "",
+		// Movie-Pilot JWT Bearer Token
+		"MOVIE_PILOT_TOKEN": "",
+		// TMDB API 密钥 (从 themoviedb.org 获取)
+		"TMDB_API_KEY": "",
+		// HtmlCssToImage API User ID (从 htmlcsstoimage.com 获取)
+		"HCTI_API_ID": "",
+		// HtmlCssToImage API Key
+		"HCTI_API_KEY": "",
+		// Telegram Bot Token (从 @BotFather 获取)
+		"TG_BOT_TOKEN": "",
+		// Telegram Chat ID (频道/群组/用户 ID)
+		"TG_CHAT_ID": ""
+	}
 }
