@@ -2,26 +2,31 @@
 // 全局常量配置
 // ==========================================
 
-// 目标榜单配置
-const TARGET_BANKS = [
-  { name: "🎬 TMDB 流行趋势", url: "/api/v1/recommend/tmdb_trending", type: "mixed" },
-  { name: "🎥 TMDB 热门电影", url: "/api/v1/recommend/tmdb_movies", type: "movie" },
-  { name: "📺 TMDB 热门剧集", url: "/api/v1/recommend/tmdb_tvs", type: "tv" },
-  { name: "🍿 豆瓣正在热映", url: "/api/v1/recommend/douban_movie_showing", type: "movie" },
-  { name: "🔥 豆瓣热门电影", url: "/api/v1/recommend/douban_movie_hot", type: "movie" },
-  { name: "🆕 豆瓣最新电影", url: "/api/v1/recommend/douban_movies", type: "movie" },
-  { name: "📡 豆瓣热门剧集", url: "/api/v1/recommend/douban_tv_hot", type: "tv" },
-  { name: "✨ 豆瓣最新剧集", url: "/api/v1/recommend/douban_tvs", type: "tv" }
+interface TargetBank {
+  name: string;
+  source: "tmdb" | "douban";
+  path?: string;
+  type: "movie" | "tv" | "mixed";
+  tag?: string;
+}
+
+// 目标榜单配置 (直接访问 TMDB 和 豆瓣 API)
+const TARGET_BANKS: TargetBank[] = [
+  { name: "🎬 TMDB 流行趋势", source: "tmdb", path: "/trending/all/day", type: "mixed" },
+  { name: "🎥 TMDB 热门电影", source: "tmdb", path: "/movie/popular", type: "movie" },
+  { name: "🍿 TMDB 正在热映", source: "tmdb", path: "/movie/now_playing", type: "movie" },
+  { name: "📺 TMDB 热门剧集", source: "tmdb", path: "/tv/popular", type: "tv" },
+  { name: "🔥 豆瓣热门电影", source: "douban", type: "movie", tag: "热门" },
+  { name: "🆕 豆瓣最新电影", source: "douban", type: "movie", tag: "最新" },
+  { name: "📡 豆瓣热门剧集", source: "douban", type: "tv", tag: "热门" },
+  { name: "✨ 豆瓣最新剧集", source: "douban", type: "tv", tag: "最新" }
 ];
 
 // ==========================================
 // 类型定义
 // ==========================================
 
-// 所有配置均通过 Cloudflare 环境变量 / Secrets 注入
 interface Env {
-  MOVIE_PILOT_URL: string;
-  MOVIE_PILOT_TOKEN: string;
   TMDB_API_KEY: string;
   HCTI_API_ID: string;
   HCTI_API_KEY: string;
@@ -37,28 +42,47 @@ interface TmdbDetails {
 }
 
 interface BankItem {
+  id?: number | string;
   tmdb_id?: number;
-  id?: number;
   media_type?: string;
   title?: string;
   name?: string;
   overview?: string;
   vote_average?: number;
   rating?: number;
-  items?: BankItem[];
-  tmdbDetails: TmdbDetails;
+  tmdbDetails?: TmdbDetails;
 }
 
 // ==========================================
-// 辅助函数
+// 辅助函数: TMDB API
 // ==========================================
+
+// 通过标题搜索 TMDB 获取 ID
+async function searchTmdbByTitle(title: string, type: string, apiKey: string): Promise<number | null> {
+  if (!title || !apiKey) return null;
+  // mixed falls back to multi search
+  const searchType = type === "mixed" ? "multi" : type;
+  try {
+    const url = `https://api.themoviedb.org/3/search/${searchType}?api_key=${apiKey}&query=${encodeURIComponent(title)}&language=zh-CN&page=1`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const json: any = await res.json();
+    if (json.results && json.results.length > 0) {
+      return json.results[0].id;
+    }
+  } catch (e) {
+    console.error(`TMDB 搜索失败: ${title}`);
+  }
+  return null;
+}
 
 async function fetchTmdbDetails(tmdbId: number, type: string, apiKey: string): Promise<TmdbDetails> {
   const result: TmdbDetails = { actors: "暂无演员信息", companies: "暂无", date: "未知", poster: "" };
   if (!tmdbId || isNaN(tmdbId) || !apiKey) return result;
 
   try {
-    const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${apiKey}&append_to_response=credits&language=zh-CN`;
+    const fetchType = type === "mixed" ? "movie" : type; // Default to movie if mixed
+    const url = `https://api.themoviedb.org/3/${fetchType}/${tmdbId}?api_key=${apiKey}&append_to_response=credits&language=zh-CN`;
     const res = await fetch(url);
     if (!res.ok) return result;
     const json: any = await res.json();
@@ -83,6 +107,70 @@ async function fetchTmdbDetails(tmdbId: number, type: string, apiKey: string): P
   return result;
 }
 
+// ==========================================
+// 数据抓取逻辑
+// ==========================================
+
+async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
+  const items: BankItem[] = [];
+
+  if (bank.source === "tmdb" && bank.path) {
+    // 抓取 TMDB 榜单
+    const url = `https://api.themoviedb.org/3${bank.path}?api_key=${env.TMDB_API_KEY}&language=zh-CN&page=1`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.error(`TMDB 榜单获取失败: ${bank.name}`);
+      return [];
+    }
+    const data: any = await res.json();
+    const results = data.results || [];
+    
+    // 取前 20，并格式化
+    for (const r of results.slice(0, 20)) {
+      items.push({
+        tmdb_id: r.id,
+        media_type: bank.type === "mixed" ? r.media_type : bank.type,
+        title: r.title || r.name,
+        overview: r.overview,
+        vote_average: r.vote_average
+      });
+    }
+
+  } else if (bank.source === "douban" && bank.tag) {
+    // 抓取 豆瓣 榜单
+    const url = `https://movie.douban.com/j/search_subjects?type=${bank.type}&tag=${encodeURIComponent(bank.tag)}&sort=recommend&page_limit=20&page_start=0`;
+    // 伪装浏览器 UA 防止被盾
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      }
+    });
+    
+    if (!res.ok) {
+      console.error(`豆瓣榜单获取失败: ${bank.name}`);
+      return [];
+    }
+    const data: any = await res.json();
+    const subjects = data.subjects || [];
+
+    for (const s of subjects.slice(0, 20)) {
+      items.push({
+        id: s.id,
+        media_type: bank.type,
+        title: s.title,
+        overview: "", // 豆瓣该接口不返回简介，将在 TMDB 补全
+        rating: parseFloat(s.rate || "0")
+      });
+    }
+  }
+
+  return items;
+}
+
+// ==========================================
+// HTML 与图片渲染
+// ==========================================
+
 function buildHtml(bankName: string, items: BankItem[]): string {
   let cardsHtml = '';
 
@@ -93,10 +181,12 @@ function buildHtml(bankName: string, items: BankItem[]): string {
     else if (index === 2) rankClass = 'top3';
 
     const title = item.title || item.name || '未知影视';
-    const year = item.tmdbDetails.date;
+    const year = item.tmdbDetails?.date || '未知';
     const desc = item.overview ? item.overview.substring(0, 60) + '...' : '暂无详细简介';
     const score = item.vote_average || item.rating || 'N/A';
-    const posterSrc = item.tmdbDetails.poster || 'https://via.placeholder.com/140x200/cccccc/ffffff?text=No+Poster';
+    const posterSrc = item.tmdbDetails?.poster || 'https://via.placeholder.com/140x200/cccccc/ffffff?text=No+Poster';
+    const actors = item.tmdbDetails?.actors || '暂无演员信息';
+    const companies = item.tmdbDetails?.companies || '暂无';
 
     cardsHtml += `
       <div class="movie-card">
@@ -104,9 +194,9 @@ function buildHtml(bankName: string, items: BankItem[]): string {
         <img class="poster" src="${posterSrc}" />
         <div class="info-area">
           <h2 class="title">${title}</h2>
-          <div class="meta-tags">${year} / ${item.tmdbDetails.companies}</div>
+          <div class="meta-tags">${year} / ${companies}</div>
           <div class="description">${desc}</div>
-          <div class="cast">👥 ${item.tmdbDetails.actors}</div>
+          <div class="cast">👥 ${actors}</div>
         </div>
         <div class="rating-area">
           <div style="color: #888; font-size: 16px; margin-bottom: 8px;">综合评分</div>
@@ -198,33 +288,37 @@ async function sendPhotoToTelegram(photoUrl: string, caption: string, env: Env):
   }
 }
 
+// ==========================================
+// 主流程
+// ==========================================
+
 async function processAllBanks(env: Env): Promise<void> {
   for (const bank of TARGET_BANKS) {
     try {
       console.log(`正在处理榜单: ${bank.name}`);
 
-      // 1. 获取 Movie-Pilot 榜单基础数据
-      const apiUrl = `${env.MOVIE_PILOT_URL}${bank.url}`;
-      const res = await fetch(apiUrl, {
-        headers: { "Authorization": `Bearer ${env.MOVIE_PILOT_TOKEN}` }
-      });
-
-      if (!res.ok) {
-        console.error(`请求 Movie-Pilot 失败: ${res.status}`);
-        continue;
-      }
-
-      const data: any = await res.json();
-      const items: BankItem[] = (Array.isArray(data) ? data : data.items || []).slice(0, 20);
-
+      // 1. 抓取榜单数据 (TMDB 或 豆瓣)
+      const items = await fetchBankData(bank, env);
       if (items.length === 0) continue;
 
-      // 2. 并发请求 TMDB 补全海报、发行方和演员信息
+      // 2. 并发请求 TMDB 补全详情
       const hydratedItems = await Promise.all(items.map(async (item) => {
-        const tmdbId = item.tmdb_id || item.id;
-        const itemType = bank.type === "mixed" ? (item.media_type || "movie") : bank.type;
-        const tmdbDetails = await fetchTmdbDetails(tmdbId!, itemType, env.TMDB_API_KEY);
-        return { ...item, tmdbDetails };
+        let tmdbId = item.tmdb_id;
+        const itemType = item.media_type || bank.type || "movie";
+
+        // 如果是豆瓣来源没有 tmdb_id，通过标题搜索获取
+        if (!tmdbId && item.title) {
+          tmdbId = (await searchTmdbByTitle(item.title, itemType, env.TMDB_API_KEY)) || undefined;
+        }
+
+        // 抓取详情
+        if (tmdbId) {
+          const tmdbDetails = await fetchTmdbDetails(tmdbId, itemType, env.TMDB_API_KEY);
+          return { ...item, tmdbDetails };
+        } else {
+           // 无法匹配 TMDB 时使用空详情
+          return { ...item, tmdbDetails: { actors: "暂无", companies: "暂无", date: "未知", poster: "" } };
+        }
       }));
 
       // 3. 构建精美的 HTML
@@ -248,9 +342,8 @@ async function processAllBanks(env: Env): Promise<void> {
 async function runBotTask(env: Env): Promise<void> {
   console.log("启动抓取任务，正在从环境变量加载配置...");
 
-  // 检查核心配置是否完整
-  if (!env.MOVIE_PILOT_URL || !env.TG_BOT_TOKEN || !env.HCTI_API_ID) {
-    console.error("环境变量配置不完整，请在 Cloudflare Dashboard → Worker → Settings → Variables 中填写所有必需变量");
+  if (!env.TMDB_API_KEY || !env.TG_BOT_TOKEN || !env.HCTI_API_ID) {
+    console.error("环境变量配置不完整，请配置 TMDB, TG, HCTI 变量。");
     return;
   }
 
@@ -269,11 +362,8 @@ interface CheckResult {
   latency: number;
 }
 
-// 检测环境变量是否已配置
 function checkEnvVars(env: Env): CheckResult {
   const vars = [
-    { key: "MOVIE_PILOT_URL", label: "Movie-Pilot URL" },
-    { key: "MOVIE_PILOT_TOKEN", label: "Movie-Pilot Token" },
     { key: "TMDB_API_KEY", label: "TMDB API Key" },
     { key: "HCTI_API_ID", label: "HCTI API ID" },
     { key: "HCTI_API_KEY", label: "HCTI API Key" },
@@ -282,12 +372,8 @@ function checkEnvVars(env: Env): CheckResult {
   ];
 
   const missing: string[] = [];
-  const configured: string[] = [];
-
   for (const v of vars) {
-    if ((env as any)[v.key]) {
-      configured.push(v.label);
-    } else {
+    if (!(env as any)[v.key]) {
       missing.push(v.label);
     }
   }
@@ -299,434 +385,151 @@ function checkEnvVars(env: Env): CheckResult {
   }
 }
 
-// 检测 Telegram Bot 连通性 (调用 getMe)
 async function checkTelegram(env: Env): Promise<CheckResult> {
-  if (!env.TG_BOT_TOKEN) {
-    return { name: "Telegram Bot", icon: "🤖", ok: false, detail: "TG_BOT_TOKEN 未配置", latency: 0 };
-  }
+  if (!env.TG_BOT_TOKEN) return { name: "Telegram Bot", icon: "🤖", ok: false, detail: "未配置", latency: 0 };
   const start = Date.now();
   try {
     const res = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/getMe`);
-    const latency = Date.now() - start;
     const json: any = await res.json();
-    if (json.ok) {
-      return { name: "Telegram Bot", icon: "🤖", ok: true, detail: `@${json.result.username} (${json.result.first_name})`, latency };
-    }
-    return { name: "Telegram Bot", icon: "🤖", ok: false, detail: `API 返回错误: ${json.description}`, latency };
+    if (json.ok) return { name: "Telegram Bot", icon: "🤖", ok: true, detail: `@${json.result.username}`, latency: Date.now() - start };
+    return { name: "Telegram Bot", icon: "🤖", ok: false, detail: `API 错误: ${json.description}`, latency: Date.now() - start };
   } catch (e: any) {
     return { name: "Telegram Bot", icon: "🤖", ok: false, detail: `连接失败: ${e.message}`, latency: Date.now() - start };
   }
 }
 
-// 检测 Telegram Chat 可达性 (调用 getChat)
 async function checkTelegramChat(env: Env): Promise<CheckResult> {
-  if (!env.TG_BOT_TOKEN || !env.TG_CHAT_ID) {
-    return { name: "Telegram Chat", icon: "💬", ok: false, detail: "TG_BOT_TOKEN 或 TG_CHAT_ID 未配置", latency: 0 };
-  }
+  if (!env.TG_BOT_TOKEN || !env.TG_CHAT_ID) return { name: "Telegram Chat", icon: "💬", ok: false, detail: "未配置", latency: 0 };
   const start = Date.now();
   try {
     const res = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/getChat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: env.TG_CHAT_ID })
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: env.TG_CHAT_ID })
     });
-    const latency = Date.now() - start;
     const json: any = await res.json();
-    if (json.ok) {
-      const chat = json.result;
-      const chatName = chat.title || chat.first_name || chat.username || env.TG_CHAT_ID;
-      return { name: "Telegram Chat", icon: "💬", ok: true, detail: `${chat.type}: ${chatName}`, latency };
-    }
-    return { name: "Telegram Chat", icon: "💬", ok: false, detail: `无法访问目标 Chat: ${json.description}`, latency };
+    if (json.ok) return { name: "Telegram Chat", icon: "💬", ok: true, detail: `${json.result.type}: ${json.result.title || json.result.username || env.TG_CHAT_ID}`, latency: Date.now() - start };
+    return { name: "Telegram Chat", icon: "💬", ok: false, detail: `无法访问: ${json.description}`, latency: Date.now() - start };
   } catch (e: any) {
     return { name: "Telegram Chat", icon: "💬", ok: false, detail: `连接失败: ${e.message}`, latency: Date.now() - start };
   }
 }
 
-// 检测 Movie-Pilot 连通性
-async function checkMoviePilot(env: Env): Promise<CheckResult> {
-  if (!env.MOVIE_PILOT_URL) {
-    return { name: "Movie-Pilot", icon: "🎬", ok: false, detail: "MOVIE_PILOT_URL 未配置", latency: 0 };
-  }
-  const start = Date.now();
-  try {
-    // 尝试请求第一个榜单来检测连通性
-    const headers: Record<string, string> = {};
-    if (env.MOVIE_PILOT_TOKEN) {
-      headers["Authorization"] = `Bearer ${env.MOVIE_PILOT_TOKEN}`;
-    }
-    const res = await fetch(`${env.MOVIE_PILOT_URL}/api/v1/recommend/tmdb_trending`, { headers });
-    const latency = Date.now() - start;
-
-    if (res.ok) {
-      const data: any = await res.json();
-      const count = Array.isArray(data) ? data.length : (data.items?.length || 0);
-      return { name: "Movie-Pilot", icon: "🎬", ok: true, detail: `连接正常，获取到 ${count} 条数据`, latency };
-    }
-    if (res.status === 401 || res.status === 403) {
-      return { name: "Movie-Pilot", icon: "🎬", ok: false, detail: `认证失败 (${res.status})，请检查 Token`, latency };
-    }
-    return { name: "Movie-Pilot", icon: "🎬", ok: false, detail: `HTTP ${res.status}: ${res.statusText}`, latency };
-  } catch (e: any) {
-    return { name: "Movie-Pilot", icon: "🎬", ok: false, detail: `连接失败: ${e.message}`, latency: Date.now() - start };
-  }
-}
-
-// 检测 TMDB API 连通性
 async function checkTmdb(env: Env): Promise<CheckResult> {
-  if (!env.TMDB_API_KEY) {
-    return { name: "TMDB API", icon: "🎥", ok: false, detail: "TMDB_API_KEY 未配置", latency: 0 };
-  }
+  if (!env.TMDB_API_KEY) return { name: "TMDB API", icon: "🎥", ok: false, detail: "未配置", latency: 0 };
   const start = Date.now();
   try {
     const res = await fetch(`https://api.themoviedb.org/3/movie/550?api_key=${env.TMDB_API_KEY}&language=zh-CN`);
-    const latency = Date.now() - start;
-
-    if (res.ok) {
-      const json: any = await res.json();
-      return { name: "TMDB API", icon: "🎥", ok: true, detail: `连接正常 (测试: ${json.title || json.original_title})`, latency };
-    }
-    if (res.status === 401) {
-      return { name: "TMDB API", icon: "🎥", ok: false, detail: "API Key 无效", latency };
-    }
-    return { name: "TMDB API", icon: "🎥", ok: false, detail: `HTTP ${res.status}`, latency };
+    if (res.ok) return { name: "TMDB API", icon: "🎥", ok: true, detail: `连接正常`, latency: Date.now() - start };
+    return { name: "TMDB API", icon: "🎥", ok: false, detail: `HTTP ${res.status}`, latency: Date.now() - start };
   } catch (e: any) {
     return { name: "TMDB API", icon: "🎥", ok: false, detail: `连接失败: ${e.message}`, latency: Date.now() - start };
   }
 }
 
-// 检测 HCTI API 连通性
-async function checkHcti(env: Env): Promise<CheckResult> {
-  if (!env.HCTI_API_ID || !env.HCTI_API_KEY) {
-    return { name: "HCTI 截图", icon: "🖼️", ok: false, detail: "HCTI_API_ID 或 HCTI_API_KEY 未配置", latency: 0 };
-  }
+async function checkDouban(): Promise<CheckResult> {
   const start = Date.now();
   try {
-    const auth = btoa(`${env.HCTI_API_ID}:${env.HCTI_API_KEY}`);
+    const res = await fetch("https://movie.douban.com/j/search_subjects?type=movie&tag=%E7%83%AD%E9%97%A8&page_limit=1&page_start=0", {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36" }
+    });
+    if (res.ok) return { name: "豆瓣 API", icon: "🟢", ok: true, detail: `连接正常`, latency: Date.now() - start };
+    return { name: "豆瓣 API", icon: "🟢", ok: false, detail: `HTTP ${res.status}`, latency: Date.now() - start };
+  } catch (e: any) {
+    return { name: "豆瓣 API", icon: "🟢", ok: false, detail: `连接失败: ${e.message}`, latency: Date.now() - start };
+  }
+}
+
+async function checkHcti(env: Env): Promise<CheckResult> {
+  if (!env.HCTI_API_ID || !env.HCTI_API_KEY) return { name: "HCTI 截图", icon: "🖼️", ok: false, detail: "未配置", latency: 0 };
+  const start = Date.now();
+  try {
     const res = await fetch("https://hcti.io/v1/image", {
       method: "POST",
-      headers: {
-        "Authorization": `Basic ${auth}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        html: "<div style='padding:20px;font-size:24px;color:#333;'>RMBD 连通性测试 ✅</div>",
-        css: ""
-      })
+      headers: { "Authorization": `Basic ${btoa(`${env.HCTI_API_ID}:${env.HCTI_API_KEY}`)}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ html: "<div>OK</div>", css: "" })
     });
-    const latency = Date.now() - start;
-
-    if (res.ok) {
-      const json: any = await res.json();
-      if (json.url) {
-        return { name: "HCTI 截图", icon: "🖼️", ok: true, detail: `渲染成功`, latency };
-      }
-    }
-    if (res.status === 401 || res.status === 403) {
-      return { name: "HCTI 截图", icon: "🖼️", ok: false, detail: "API 认证失败，请检查 ID 和 Key", latency };
-    }
-    return { name: "HCTI 截图", icon: "🖼️", ok: false, detail: `HTTP ${res.status}`, latency };
+    if (res.ok) return { name: "HCTI 截图", icon: "🖼️", ok: true, detail: `渲染成功`, latency: Date.now() - start };
+    return { name: "HCTI 截图", icon: "🖼️", ok: false, detail: `HTTP ${res.status}`, latency: Date.now() - start };
   } catch (e: any) {
     return { name: "HCTI 截图", icon: "🖼️", ok: false, detail: `连接失败: ${e.message}`, latency: Date.now() - start };
   }
 }
 
-// 构建诊断结果 HTML 页面
 function buildStatusHtml(results: CheckResult[]): string {
   const passCount = results.filter(r => r.ok).length;
   const totalCount = results.length;
   const allPass = passCount === totalCount;
-
-  const rows = results.map(r => {
-    const statusBadge = r.ok
-      ? '<span class="badge pass">✅ 正常</span>'
-      : '<span class="badge fail">❌ 异常</span>';
-    const latencyText = r.latency > 0 ? `${r.latency}ms` : '-';
-    return `
+  const rows = results.map(r => `
       <tr>
-        <td class="svc-name">${r.icon} ${r.name}</td>
-        <td>${statusBadge}</td>
-        <td class="detail">${r.detail}</td>
-        <td class="latency">${latencyText}</td>
-      </tr>`;
-  }).join('');
+        <td style="padding:14px 24px;font-weight:600">${r.icon} ${r.name}</td>
+        <td style="padding:14px 24px">${r.ok ? '<span style="color:#68d391">✅ 正常</span>' : '<span style="color:#fc8181">❌ 异常</span>'}</td>
+        <td style="padding:14px 24px;color:#8b949e;font-size:13px">${r.detail}</td>
+        <td style="padding:14px 24px;color:#8b949e;text-align:right">${r.latency > 0 ? r.latency + 'ms' : '-'}</td>
+      </tr>`).join('');
 
   return `<!DOCTYPE html>
 <html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RMBD 系统诊断</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: 'Inter', system-ui, -apple-system, sans-serif;
-      background: #0f1117;
-      color: #e1e4e8;
-      min-height: 100vh;
-      padding: 40px 20px;
-    }
-    .container { max-width: 800px; margin: 0 auto; }
-    .header {
-      text-align: center;
-      margin-bottom: 40px;
-    }
-    .header h1 {
-      font-size: 28px;
-      font-weight: 700;
-      background: linear-gradient(135deg, #667eea, #764ba2);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      margin-bottom: 8px;
-    }
-    .header p { color: #8b949e; font-size: 14px; }
-
-    .summary {
-      display: flex;
-      justify-content: center;
-      gap: 16px;
-      margin-bottom: 32px;
-    }
-    .summary-card {
-      background: ${allPass ? 'rgba(56, 161, 105, 0.1)' : 'rgba(229, 62, 62, 0.1)'};
-      border: 1px solid ${allPass ? 'rgba(56, 161, 105, 0.3)' : 'rgba(229, 62, 62, 0.3)'};
-      border-radius: 12px;
-      padding: 20px 40px;
-      text-align: center;
-    }
-    .summary-card .big {
-      font-size: 36px;
-      font-weight: 700;
-      color: ${allPass ? '#38a169' : '#e53e3e'};
-    }
-    .summary-card .label { color: #8b949e; font-size: 13px; margin-top: 4px; }
-
-    .card {
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-radius: 12px;
-      overflow: hidden;
-      margin-bottom: 24px;
-    }
-    .card-title {
-      padding: 16px 24px;
-      font-size: 15px;
-      font-weight: 600;
-      color: #c9d1d9;
-      border-bottom: 1px solid #21262d;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    table { width: 100%; border-collapse: collapse; }
-    th {
-      text-align: left;
-      padding: 12px 24px;
-      font-size: 12px;
-      font-weight: 600;
-      color: #8b949e;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      border-bottom: 1px solid #21262d;
-    }
-    td {
-      padding: 14px 24px;
-      font-size: 14px;
-      border-bottom: 1px solid #21262d;
-    }
-    tr:last-child td { border-bottom: none; }
-    tr:hover { background: rgba(255,255,255,0.02); }
-
-    .svc-name { font-weight: 600; white-space: nowrap; }
-    .detail { color: #8b949e; font-size: 13px; max-width: 300px; word-break: break-word; }
-    .latency { color: #8b949e; font-size: 13px; text-align: right; font-family: monospace; }
-
-    .badge {
-      display: inline-block;
-      padding: 3px 10px;
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: 600;
-      white-space: nowrap;
-    }
-    .badge.pass { background: rgba(56, 161, 105, 0.15); color: #68d391; }
-    .badge.fail { background: rgba(229, 62, 62, 0.15); color: #fc8181; }
-
-    .actions {
-      display: flex;
-      gap: 12px;
-      justify-content: center;
-      margin-top: 32px;
-    }
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 12px 28px;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
-      text-decoration: none;
-      transition: all 0.2s;
-      cursor: pointer;
-      border: none;
-    }
-    .btn-primary {
-      background: linear-gradient(135deg, #667eea, #764ba2);
-      color: white;
-    }
-    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
-    .btn-secondary {
-      background: #21262d;
-      color: #c9d1d9;
-      border: 1px solid #30363d;
-    }
-    .btn-secondary:hover { background: #30363d; }
-    .btn-success {
-      background: linear-gradient(135deg, #38a169, #2f855a);
-      color: white;
-    }
-    .btn-success:hover { opacity: 0.9; transform: translateY(-1px); }
-
-    .footer {
-      text-align: center;
-      margin-top: 40px;
-      color: #484f58;
-      font-size: 12px;
-    }
-
-    @media (max-width: 640px) {
-      th:nth-child(4), td.latency { display: none; }
-      td { padding: 10px 14px; }
-      th { padding: 10px 14px; }
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>🎬 RMBD 系统诊断</h1>
-      <p>影视榜单推送机器人 · 连通性检测</p>
-    </div>
-
-    <div class="summary">
-      <div class="summary-card">
-        <div class="big">${passCount} / ${totalCount}</div>
-        <div class="label">${allPass ? '🎉 全部服务正常' : '⚠️ 部分服务异常'}</div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">📡 服务连通性检测结果</div>
-      <table>
-        <thead>
-          <tr>
-            <th>服务</th>
-            <th>状态</th>
-            <th>详情</th>
-            <th style="text-align:right">延迟</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>
-
-    <div class="actions">
-      <a href="/status" class="btn btn-secondary">🔄 重新检测</a>
-      ${allPass ? '<a href="/run" class="btn btn-success">🚀 立即推送</a>' : ''}
-      <a href="/test-tg" class="btn btn-primary">📨 发送 TG 测试消息</a>
-    </div>
-
-    <div class="footer">
-      检测时间: ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })} · Powered by Cloudflare Workers
-    </div>
-  </div>
-</body>
-</html>`;
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>RMBD 系统诊断</title>
+<style>body{font-family:system-ui,sans-serif;background:#0f1117;color:#e1e4e8;padding:40px 20px;} .container{max-width:800px;margin:0 auto;}
+table{width:100%;border-collapse:collapse;background:#161b22;border-radius:12px;overflow:hidden;}
+th{text-align:left;padding:12px 24px;color:#8b949e;border-bottom:1px solid #30363d;}
+td{border-bottom:1px solid #21262d;} .btn{display:inline-block;padding:12px 28px;border-radius:8px;font-weight:600;text-decoration:none;color:white;margin:0 6px;}
+</style></head>
+<body><div class="container">
+<div style="text-align:center;margin-bottom:40px"><h2>🎬 RMBD 系统诊断</h2><p style="color:#8b949e">影视榜单推送机器人 · 连通性检测</p></div>
+<table><thead><tr><th>服务</th><th>状态</th><th>详情</th><th style="text-align:right">延迟</th></tr></thead><tbody>${rows}</tbody></table>
+<div style="text-align:center;margin-top:40px">
+  <a href="/status" class="btn" style="background:#21262d;border:1px solid #30363d">🔄 重新检测</a>
+  ${allPass ? '<a href="/run" class="btn" style="background:#38a169">🚀 立即推送</a>' : ''}
+  <a href="/test-tg" class="btn" style="background:#667eea">📨 发送 TG 测试消息</a>
+</div></div></body></html>`;
 }
 
 // 发送 TG 测试文本消息
 async function sendTestTelegramMessage(env: Env): Promise<{ ok: boolean; detail: string }> {
-  if (!env.TG_BOT_TOKEN || !env.TG_CHAT_ID) {
-    return { ok: false, detail: "TG_BOT_TOKEN 或 TG_CHAT_ID 未配置" };
-  }
+  if (!env.TG_BOT_TOKEN || !env.TG_CHAT_ID) return { ok: false, detail: "未配置 TG Token/ChatID" };
   try {
-    const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
     const res = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: env.TG_CHAT_ID,
-        text: `✅ <b>RMBD 连通性测试成功</b>\n\n🕐 时间: ${now}\n🤖 Bot 运行正常，消息推送通道畅通！`,
-        parse_mode: "HTML"
-      })
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: env.TG_CHAT_ID, text: `✅ <b>RMBD 测试成功</b>\n🤖 消息推送通道畅通！`, parse_mode: "HTML" })
     });
     const json: any = await res.json();
-    if (json.ok) {
-      return { ok: true, detail: `消息已成功发送至 Chat ${env.TG_CHAT_ID}` };
-    }
-    return { ok: false, detail: `发送失败: ${json.description}` };
-  } catch (e: any) {
-    return { ok: false, detail: `请求异常: ${e.message}` };
-  }
+    return json.ok ? { ok: true, detail: "发送成功" } : { ok: false, detail: json.description };
+  } catch (e: any) { return { ok: false, detail: e.message }; }
 }
 
 // ==========================================
 // Worker 导出
 // ==========================================
 export default {
-  // 定时任务入口 (Cron Triggers)
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(runBotTask(env));
   },
-
-  // HTTP 请求入口
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    // 路由：系统诊断页面
     if (request.method === "GET" && url.pathname === "/status") {
-      // 并发执行所有检测
       const results = await Promise.all([
-        Promise.resolve(checkEnvVars(env)),
-        checkTelegram(env),
-        checkTelegramChat(env),
-        checkMoviePilot(env),
-        checkTmdb(env),
-        checkHcti(env),
+        Promise.resolve(checkEnvVars(env)), checkTelegram(env), checkTelegramChat(env), checkTmdb(env), checkDouban(), checkHcti(env)
       ]);
-      const html = buildStatusHtml(results);
-      return new Response(html, { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      return new Response(buildStatusHtml(results), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
     }
 
-    // 路由：发送 TG 测试消息
     if (request.method === "GET" && url.pathname === "/test-tg") {
       const result = await sendTestTelegramMessage(env);
-      const emoji = result.ok ? "✅" : "❌";
-      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="3;url=/status">
-        <style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#0f1117;color:#e1e4e8;margin:0;}
-        .msg{text-align:center;padding:40px;background:#161b22;border:1px solid #30363d;border-radius:16px;}
-        h2{margin:0 0 12px;font-size:20px;}p{color:#8b949e;font-size:14px;margin:8px 0 0;}</style></head>
-        <body><div class="msg"><h2>${emoji} ${result.ok ? 'TG 测试消息已发送' : 'TG 测试消息发送失败'}</h2>
-        <p>${result.detail}</p><p>3 秒后返回诊断页面...</p></div></body></html>`;
-      return new Response(html, { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      return new Response(`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="3;url=/status">
+        <style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#0f1117;color:#e1e4e8;margin:0;}</style></head>
+        <body><div style="text-align:center"><h2>${result.ok ? '✅' : '❌'} ${result.detail}</h2><p>3 秒后返回...</p></div></body></html>`, 
+        { headers: { "Content-Type": "text/html;charset=UTF-8" } });
     }
 
-    // 路由：手动触发推送任务
     if (request.method === "GET" && url.pathname === "/run") {
       runBotTask(env).catch(console.error);
-      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="5;url=/status">
-        <style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#0f1117;color:#e1e4e8;margin:0;}
-        .msg{text-align:center;padding:40px;background:#161b22;border:1px solid #30363d;border-radius:16px;}
-        h2{margin:0 0 12px;font-size:20px;}p{color:#8b949e;font-size:14px;margin:8px 0 0;}</style></head>
-        <body><div class="msg"><h2>🚀 推送任务已启动</h2><p>任务已在后台运行，请稍后查看 Telegram 频道。</p>
-        <p>5 秒后返回诊断页面...</p></div></body></html>`;
-      return new Response(html, { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      return new Response(`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="3;url=/status">
+        <style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#0f1117;color:#e1e4e8;margin:0;}</style></head>
+        <body><div style="text-align:center"><h2>🚀 推送任务已在后台启动</h2><p>请稍后查看 Telegram</p></div></body></html>`, 
+        { headers: { "Content-Type": "text/html;charset=UTF-8" } });
     }
 
-    // 默认路由：重定向到诊断页
     return Response.redirect(new URL("/status", request.url).toString(), 302);
   }
 } satisfies ExportedHandler<Env>;

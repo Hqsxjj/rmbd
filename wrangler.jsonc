@@ -20,10 +20,6 @@
 	// 环境变量 — 在这里直接填入你的配置
 	// ==========================================
 	"vars": {
-		// Movie-Pilot 实例地址，例如: https://mp.example.com
-		"MOVIE_PILOT_URL": "https://mp.zhanghongmeng.cn:5238",
-		// Movie-Pilot JWT Bearer Token
-		"MOVIE_PILOT_TOKEN": "hLejBUmUOkgJFNmWeevPKwZ4f5x7sss6",
 		// TMDB API 密钥 (从 themoviedb.org 获取)
 		"TMDB_API_KEY": "6cb0121723c7904c862317c62665cbaf",
 		// HtmlCssToImage API User ID (从 htmlcsstoimage.com 获取)
