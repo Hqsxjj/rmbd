@@ -11,18 +11,34 @@
 	},
 	"upload_source_maps": true,
 
-	// KV Namespace 绑定 — 用于存储后台管理面板中的 API Key 等配置
-	// 部署前请运行: wrangler kv namespace create BOT_CONFIG
-	// 然后将返回的 id 填入此处
-	"kv_namespaces": [
-		{
-			"binding": "BOT_CONFIG",
-			"id": "YOUR_KV_NAMESPACE_ID"
-		}
-	],
-
 	// 定时触发器 — 每天北京时间 8:00 (UTC 0:00) 自动推送
 	"triggers": {
 		"crons": ["0 0 * * *"]
 	}
+
+	// ==========================================
+	// 环境变量配置说明
+	// ==========================================
+	// 所有敏感配置均通过 Cloudflare Dashboard 设置，不写入代码。
+	//
+	// 方式一：通过 Dashboard 设置 (推荐)
+	//   Cloudflare Dashboard → Workers & Pages → rmbd → Settings → Variables and Secrets
+	//   添加以下变量（敏感项请选择 "Encrypt" 类型）：
+	//
+	//   MOVIE_PILOT_URL     → 你的 Movie-Pilot 地址
+	//   MOVIE_PILOT_TOKEN   → Movie-Pilot JWT Token (加密)
+	//   TMDB_API_KEY        → TMDB API 密钥 (加密)
+	//   HCTI_API_ID         → HtmlCssToImage API ID
+	//   HCTI_API_KEY        → HtmlCssToImage API Key (加密)
+	//   TG_BOT_TOKEN        → Telegram Bot Token (加密)
+	//   TG_CHAT_ID          → Telegram Chat ID
+	//
+	// 方式二：通过 wrangler CLI 设置 Secret
+	//   npx wrangler secret put MOVIE_PILOT_URL
+	//   npx wrangler secret put MOVIE_PILOT_TOKEN
+	//   npx wrangler secret put TMDB_API_KEY
+	//   npx wrangler secret put HCTI_API_ID
+	//   npx wrangler secret put HCTI_API_KEY
+	//   npx wrangler secret put TG_BOT_TOKEN
+	//   npx wrangler secret put TG_CHAT_ID
 }

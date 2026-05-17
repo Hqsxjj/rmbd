@@ -1,8 +1,6 @@
 // ==========================================
 // 全局常量配置
 // ==========================================
-// 后台管理面板登录密码 (请修改为你自己的密码)
-const ADMIN_PASSWORD = "admin";
 
 // 目标榜单配置
 const TARGET_BANKS = [
@@ -19,18 +17,16 @@ const TARGET_BANKS = [
 // ==========================================
 // 类型定义
 // ==========================================
-interface Env {
-  BOT_CONFIG: KVNamespace;
-}
 
-interface BotConfig {
-  mpUrl: string | null;
-  mpToken: string | null;
-  tmdbKey: string | null;
-  hctiId: string | null;
-  hctiKey: string | null;
-  tgBot: string | null;
-  tgChat: string | null;
+// 所有配置均通过 Cloudflare 环境变量 / Secrets 注入
+interface Env {
+  MOVIE_PILOT_URL: string;
+  MOVIE_PILOT_TOKEN: string;
+  TMDB_API_KEY: string;
+  HCTI_API_ID: string;
+  HCTI_API_KEY: string;
+  TG_BOT_TOKEN: string;
+  TG_CHAT_ID: string;
 }
 
 interface TmdbDetails {
@@ -51,12 +47,6 @@ interface BankItem {
   rating?: number;
   items?: BankItem[];
   tmdbDetails: TmdbDetails;
-}
-
-interface TargetBank {
-  name: string;
-  url: string;
-  type: string;
 }
 
 // ==========================================
@@ -106,7 +96,6 @@ function buildHtml(bankName: string, items: BankItem[]): string {
     const year = item.tmdbDetails.date;
     const desc = item.overview ? item.overview.substring(0, 60) + '...' : '暂无详细简介';
     const score = item.vote_average || item.rating || 'N/A';
-    // Fallback 占位图
     const posterSrc = item.tmdbDetails.poster || 'https://via.placeholder.com/140x200/cccccc/ffffff?text=No+Poster';
 
     cardsHtml += `
@@ -184,14 +173,14 @@ async function renderHtmlToImage(html: string, apiId: string, apiKey: string): P
   }
 }
 
-async function sendPhotoToTelegram(photoUrl: string, caption: string, config: BotConfig): Promise<void> {
-  const tgUrl = `https://api.telegram.org/bot${config.tgBot}/sendPhoto`;
+async function sendPhotoToTelegram(photoUrl: string, caption: string, env: Env): Promise<void> {
+  const tgUrl = `https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendPhoto`;
   try {
     const res = await fetch(tgUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        chat_id: config.tgChat,
+        chat_id: env.TG_CHAT_ID,
         photo: photoUrl,
         caption: caption,
         parse_mode: "HTML"
@@ -209,15 +198,15 @@ async function sendPhotoToTelegram(photoUrl: string, caption: string, config: Bo
   }
 }
 
-async function processAllBanks(config: BotConfig): Promise<void> {
+async function processAllBanks(env: Env): Promise<void> {
   for (const bank of TARGET_BANKS) {
     try {
       console.log(`正在处理榜单: ${bank.name}`);
 
       // 1. 获取 Movie-Pilot 榜单基础数据
-      const apiUrl = `${config.mpUrl}${bank.url}`;
+      const apiUrl = `${env.MOVIE_PILOT_URL}${bank.url}`;
       const res = await fetch(apiUrl, {
-        headers: { "Authorization": `Bearer ${config.mpToken}` }
+        headers: { "Authorization": `Bearer ${env.MOVIE_PILOT_TOKEN}` }
       });
 
       if (!res.ok) {
@@ -234,7 +223,7 @@ async function processAllBanks(config: BotConfig): Promise<void> {
       const hydratedItems = await Promise.all(items.map(async (item) => {
         const tmdbId = item.tmdb_id || item.id;
         const itemType = bank.type === "mixed" ? (item.media_type || "movie") : bank.type;
-        const tmdbDetails = await fetchTmdbDetails(tmdbId!, itemType, config.tmdbKey!);
+        const tmdbDetails = await fetchTmdbDetails(tmdbId!, itemType, env.TMDB_API_KEY);
         return { ...item, tmdbDetails };
       }));
 
@@ -242,11 +231,11 @@ async function processAllBanks(config: BotConfig): Promise<void> {
       const htmlContent = buildHtml(bank.name, hydratedItems);
 
       // 4. 调用 HCTI 渲染长图
-      const imageUrl = await renderHtmlToImage(htmlContent, config.hctiId!, config.hctiKey!);
+      const imageUrl = await renderHtmlToImage(htmlContent, env.HCTI_API_ID, env.HCTI_API_KEY);
 
       if (imageUrl) {
         // 5. 将生成的长图推送到 Telegram
-        await sendPhotoToTelegram(imageUrl, `<b>【${bank.name}】</b> 今日 Top 20 更新啦！`, config);
+        await sendPhotoToTelegram(imageUrl, `<b>【${bank.name}】</b> 今日 Top 20 更新啦！`, env);
       }
 
     } catch (e) {
@@ -257,154 +246,15 @@ async function processAllBanks(config: BotConfig): Promise<void> {
 }
 
 async function runBotTask(env: Env): Promise<void> {
-  console.log("启动抓取任务，正在从 KV 数据库加载配置...");
-
-  // 统一拉取所有必要配置组合为 config 对象
-  const config: BotConfig = {
-    mpUrl: await env.BOT_CONFIG.get("MOVIE_PILOT_URL"),
-    mpToken: await env.BOT_CONFIG.get("MOVIE_PILOT_TOKEN"),
-    tmdbKey: await env.BOT_CONFIG.get("TMDB_API_KEY"),
-    hctiId: await env.BOT_CONFIG.get("HCTI_API_ID"),
-    hctiKey: await env.BOT_CONFIG.get("HCTI_API_KEY"),
-    tgBot: await env.BOT_CONFIG.get("TG_BOT_TOKEN"),
-    tgChat: await env.BOT_CONFIG.get("TG_CHAT_ID")
-  };
+  console.log("启动抓取任务，正在从环境变量加载配置...");
 
   // 检查核心配置是否完整
-  if (!config.mpUrl || !config.tgBot || !config.hctiId) {
-    console.error("配置不完整，请先通过 /admin 页面填写参数");
+  if (!env.MOVIE_PILOT_URL || !env.TG_BOT_TOKEN || !env.HCTI_API_ID) {
+    console.error("环境变量配置不完整，请在 Cloudflare Dashboard → Worker → Settings → Variables 中填写所有必需变量");
     return;
   }
 
-  await processAllBanks(config);
-}
-
-function renderAdminPage(mpUrl: string, mpToken: string, tmdbKey: string, hctiId: string, hctiKey: string, tgBot: string, tgChat: string): string {
-  return `
-  <!DOCTYPE html>
-  <html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TG 榜单机器人控制台</title>
-    <style>
-      body { font-family: "PingFang SC", system-ui, sans-serif; background: #f4f7f6; display: flex; justify-content: center; padding: 40px 20px; margin: 0; }
-      .card { background: white; padding: 30px 40px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); width: 100%; max-width: 550px; }
-      h2 { margin-top: 0; color: #2c3e50; font-size: 24px; display: flex; justify-content: space-between; align-items: center; }
-      .test-btn { font-size: 14px; background: #e8f4f8; color: #007bff; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-weight: normal; }
-      .form-group { margin-bottom: 18px; }
-      label { display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; color: #34495e; }
-      input { width: 100%; padding: 12px; border: 1px solid #dce4ec; border-radius: 8px; box-sizing: border-box; font-size: 14px; transition: border 0.3s; }
-      input:focus { border-color: #3498db; outline: none; }
-      button { width: 100%; padding: 14px; background: #3498db; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold; margin-top: 15px; transition: background 0.3s; }
-      button:hover { background: #2980b9; }
-      .alert { display: none; padding: 12px; background: #d4edda; color: #155724; border-radius: 8px; margin-bottom: 20px; text-align: center; font-weight: bold; }
-      .divider { border: 0; border-top: 1px dashed #dce4ec; margin: 25px 0; }
-    </style>
-  </head>
-  <body>
-    <div class="card">
-      <h2>
-        <span>⚙️ 机器人配置中心</span>
-        <a href="/run" target="_blank" class="test-btn">🚀 触发测试</a>
-      </h2>
-      <div id="msg" class="alert">保存成功！</div>
-      
-      <div class="form-group">
-        <label>管理密码 (必填)</label>
-        <input type="password" id="admin_pass" placeholder="请输入管理员密码进行操作">
-      </div>
-
-      <hr class="divider">
-
-      <div class="form-group">
-        <label>Movie-Pilot URL</label>
-        <input type="text" id="MOVIE_PILOT_URL" value="${mpUrl}" placeholder="例如: https://api.movie-pilot.org">
-      </div>
-      <div class="form-group">
-        <label>Movie-Pilot Token</label>
-        <input type="password" id="MOVIE_PILOT_TOKEN" value="${mpToken}" placeholder="JWT Bearer Token">
-      </div>
-      
-      <hr class="divider">
-
-      <div class="form-group">
-        <label>TMDB API Key</label>
-        <input type="password" id="TMDB_API_KEY" value="${tmdbKey}" placeholder="用于抓取海报和演员信息">
-      </div>
-      
-      <hr class="divider">
-
-      <div class="form-group">
-        <label>HtmlCssToImage API ID</label>
-        <input type="text" id="HCTI_API_ID" value="${hctiId}" placeholder="HCTI User ID">
-      </div>
-      <div class="form-group">
-        <label>HtmlCssToImage API Key</label>
-        <input type="password" id="HCTI_API_KEY" value="${hctiKey}" placeholder="HCTI API Key">
-      </div>
-
-      <hr class="divider">
-
-      <div class="form-group">
-        <label>Telegram Bot Token</label>
-        <input type="password" id="TG_BOT_TOKEN" value="${tgBot}" placeholder="bot123456:ABCDefgh...">
-      </div>
-      <div class="form-group">
-        <label>Telegram Chat ID</label>
-        <input type="text" id="TG_CHAT_ID" value="${tgChat}" placeholder="接收消息的频道或用户 ID">
-      </div>
-
-      <button onclick="saveSettings()">💾 保存配置并应用生效</button>
-    </div>
-
-    <script>
-      async function saveSettings() {
-        const btn = document.querySelector('button');
-        btn.innerText = '保存中...';
-        
-        const payload = {
-          admin_pass: document.getElementById('admin_pass').value,
-          MOVIE_PILOT_URL: document.getElementById('MOVIE_PILOT_URL').value,
-          MOVIE_PILOT_TOKEN: document.getElementById('MOVIE_PILOT_TOKEN').value,
-          TMDB_API_KEY: document.getElementById('TMDB_API_KEY').value,
-          TG_BOT_TOKEN: document.getElementById('TG_BOT_TOKEN').value,
-          TG_CHAT_ID: document.getElementById('TG_CHAT_ID').value,
-          HCTI_API_ID: document.getElementById('HCTI_API_ID').value,
-          HCTI_API_KEY: document.getElementById('HCTI_API_KEY').value,
-        };
-
-        try {
-          const res = await fetch('/api/save', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-          const text = await res.text();
-          
-          if(res.ok) {
-            const msg = document.getElementById('msg');
-            msg.style.display = 'block';
-            msg.style.background = '#d4edda';
-            msg.style.color = '#155724';
-            msg.innerText = '✅ 保存成功！下次触发自动生效。';
-            setTimeout(() => msg.style.display = 'none', 3000);
-          } else {
-            const msg = document.getElementById('msg');
-            msg.style.display = 'block';
-            msg.style.background = '#f8d7da';
-            msg.style.color = '#721c24';
-            msg.innerText = '❌ 保存失败: ' + text;
-          }
-        } catch(e) {
-          alert('网络请求失败，请检查连接');
-        }
-        btn.innerText = '💾 保存配置并应用生效';
-      }
-    </script>
-  </body>
-  </html>
-  `;
+  await processAllBanks(env);
 }
 
 // ==========================================
@@ -416,55 +266,22 @@ export default {
     ctx.waitUntil(runBotTask(env));
   },
 
-  // HTTP 请求入口 (Web 管理面板 & 手动触发)
+  // HTTP 请求入口 (手动触发 & 状态检查)
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-
-    // 路由：访问后台管理页面
-    if (request.method === "GET" && url.pathname === "/admin") {
-      // 从 KV 数据库读取历史配置进行回显
-      const mpUrl = await env.BOT_CONFIG.get("MOVIE_PILOT_URL") || "";
-      const mpToken = await env.BOT_CONFIG.get("MOVIE_PILOT_TOKEN") || "";
-      const tmdbKey = await env.BOT_CONFIG.get("TMDB_API_KEY") || "";
-      const hctiId = await env.BOT_CONFIG.get("HCTI_API_ID") || "";
-      const hctiKey = await env.BOT_CONFIG.get("HCTI_API_KEY") || "";
-      const tgBot = await env.BOT_CONFIG.get("TG_BOT_TOKEN") || "";
-      const tgChat = await env.BOT_CONFIG.get("TG_CHAT_ID") || "";
-
-      const html = renderAdminPage(mpUrl, mpToken, tmdbKey, hctiId, hctiKey, tgBot, tgChat);
-      return new Response(html, { headers: { "Content-Type": "text/html;charset=UTF-8" } });
-    }
-
-    // 路由：保存配置接口
-    if (request.method === "POST" && url.pathname === "/api/save") {
-      const data: any = await request.json();
-
-      // 密码鉴权拦截
-      if (data.admin_pass !== ADMIN_PASSWORD) {
-        return new Response("管理员密码错误，拒绝修改！", { status: 403 });
-      }
-
-      const keys = ["MOVIE_PILOT_URL", "MOVIE_PILOT_TOKEN", "TMDB_API_KEY", "TG_BOT_TOKEN", "TG_CHAT_ID", "HCTI_API_ID", "HCTI_API_KEY"];
-
-      // 写入 KV 数据库
-      for (const key of keys) {
-        if (data[key] !== undefined) {
-          await env.BOT_CONFIG.put(key, data[key].trim());
-        }
-      }
-
-      return new Response("OK", { status: 200 });
-    }
 
     // 路由：手动触发推送任务进行测试
     if (request.method === "GET" && url.pathname === "/run") {
       runBotTask(env).catch(console.error);
-      return new Response("🚀 抓取与图文生成任务已在后台启动！请稍后查看 Telegram。", { status: 200 });
+      return new Response("🚀 抓取与图文生成任务已在后台启动！请稍后查看 Telegram。", {
+        status: 200,
+        headers: { "Content-Type": "text/plain;charset=UTF-8" }
+      });
     }
 
-    // 默认路由拦截
+    // 默认路由：状态页
     return new Response(
-      "Bot is running. \n\n👉 访问 /admin 进入配置中心\n👉 访问 /run 手动触发一次推送",
+      "✅ RMBD Bot is running.\n\n👉 访问 /run 手动触发一次推送\n📋 环境变量请在 Cloudflare Dashboard 中配置",
       { status: 200, headers: { "Content-Type": "text/plain;charset=UTF-8" } }
     );
   }
