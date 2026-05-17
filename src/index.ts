@@ -258,6 +258,422 @@ async function runBotTask(env: Env): Promise<void> {
 }
 
 // ==========================================
+// 诊断检测函数
+// ==========================================
+
+interface CheckResult {
+  name: string;
+  icon: string;
+  ok: boolean;
+  detail: string;
+  latency: number;
+}
+
+// 检测环境变量是否已配置
+function checkEnvVars(env: Env): CheckResult {
+  const vars = [
+    { key: "MOVIE_PILOT_URL", label: "Movie-Pilot URL" },
+    { key: "MOVIE_PILOT_TOKEN", label: "Movie-Pilot Token" },
+    { key: "TMDB_API_KEY", label: "TMDB API Key" },
+    { key: "HCTI_API_ID", label: "HCTI API ID" },
+    { key: "HCTI_API_KEY", label: "HCTI API Key" },
+    { key: "TG_BOT_TOKEN", label: "TG Bot Token" },
+    { key: "TG_CHAT_ID", label: "TG Chat ID" },
+  ];
+
+  const missing: string[] = [];
+  const configured: string[] = [];
+
+  for (const v of vars) {
+    if ((env as any)[v.key]) {
+      configured.push(v.label);
+    } else {
+      missing.push(v.label);
+    }
+  }
+
+  if (missing.length === 0) {
+    return { name: "环境变量", icon: "⚙️", ok: true, detail: `全部 ${vars.length} 项已配置`, latency: 0 };
+  } else {
+    return { name: "环境变量", icon: "⚙️", ok: false, detail: `缺失: ${missing.join(", ")}`, latency: 0 };
+  }
+}
+
+// 检测 Telegram Bot 连通性 (调用 getMe)
+async function checkTelegram(env: Env): Promise<CheckResult> {
+  if (!env.TG_BOT_TOKEN) {
+    return { name: "Telegram Bot", icon: "🤖", ok: false, detail: "TG_BOT_TOKEN 未配置", latency: 0 };
+  }
+  const start = Date.now();
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/getMe`);
+    const latency = Date.now() - start;
+    const json: any = await res.json();
+    if (json.ok) {
+      return { name: "Telegram Bot", icon: "🤖", ok: true, detail: `@${json.result.username} (${json.result.first_name})`, latency };
+    }
+    return { name: "Telegram Bot", icon: "🤖", ok: false, detail: `API 返回错误: ${json.description}`, latency };
+  } catch (e: any) {
+    return { name: "Telegram Bot", icon: "🤖", ok: false, detail: `连接失败: ${e.message}`, latency: Date.now() - start };
+  }
+}
+
+// 检测 Telegram Chat 可达性 (调用 getChat)
+async function checkTelegramChat(env: Env): Promise<CheckResult> {
+  if (!env.TG_BOT_TOKEN || !env.TG_CHAT_ID) {
+    return { name: "Telegram Chat", icon: "💬", ok: false, detail: "TG_BOT_TOKEN 或 TG_CHAT_ID 未配置", latency: 0 };
+  }
+  const start = Date.now();
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/getChat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: env.TG_CHAT_ID })
+    });
+    const latency = Date.now() - start;
+    const json: any = await res.json();
+    if (json.ok) {
+      const chat = json.result;
+      const chatName = chat.title || chat.first_name || chat.username || env.TG_CHAT_ID;
+      return { name: "Telegram Chat", icon: "💬", ok: true, detail: `${chat.type}: ${chatName}`, latency };
+    }
+    return { name: "Telegram Chat", icon: "💬", ok: false, detail: `无法访问目标 Chat: ${json.description}`, latency };
+  } catch (e: any) {
+    return { name: "Telegram Chat", icon: "💬", ok: false, detail: `连接失败: ${e.message}`, latency: Date.now() - start };
+  }
+}
+
+// 检测 Movie-Pilot 连通性
+async function checkMoviePilot(env: Env): Promise<CheckResult> {
+  if (!env.MOVIE_PILOT_URL) {
+    return { name: "Movie-Pilot", icon: "🎬", ok: false, detail: "MOVIE_PILOT_URL 未配置", latency: 0 };
+  }
+  const start = Date.now();
+  try {
+    // 尝试请求第一个榜单来检测连通性
+    const headers: Record<string, string> = {};
+    if (env.MOVIE_PILOT_TOKEN) {
+      headers["Authorization"] = `Bearer ${env.MOVIE_PILOT_TOKEN}`;
+    }
+    const res = await fetch(`${env.MOVIE_PILOT_URL}/api/v1/recommend/tmdb_trending`, { headers });
+    const latency = Date.now() - start;
+
+    if (res.ok) {
+      const data: any = await res.json();
+      const count = Array.isArray(data) ? data.length : (data.items?.length || 0);
+      return { name: "Movie-Pilot", icon: "🎬", ok: true, detail: `连接正常，获取到 ${count} 条数据`, latency };
+    }
+    if (res.status === 401 || res.status === 403) {
+      return { name: "Movie-Pilot", icon: "🎬", ok: false, detail: `认证失败 (${res.status})，请检查 Token`, latency };
+    }
+    return { name: "Movie-Pilot", icon: "🎬", ok: false, detail: `HTTP ${res.status}: ${res.statusText}`, latency };
+  } catch (e: any) {
+    return { name: "Movie-Pilot", icon: "🎬", ok: false, detail: `连接失败: ${e.message}`, latency: Date.now() - start };
+  }
+}
+
+// 检测 TMDB API 连通性
+async function checkTmdb(env: Env): Promise<CheckResult> {
+  if (!env.TMDB_API_KEY) {
+    return { name: "TMDB API", icon: "🎥", ok: false, detail: "TMDB_API_KEY 未配置", latency: 0 };
+  }
+  const start = Date.now();
+  try {
+    const res = await fetch(`https://api.themoviedb.org/3/movie/550?api_key=${env.TMDB_API_KEY}&language=zh-CN`);
+    const latency = Date.now() - start;
+
+    if (res.ok) {
+      const json: any = await res.json();
+      return { name: "TMDB API", icon: "🎥", ok: true, detail: `连接正常 (测试: ${json.title || json.original_title})`, latency };
+    }
+    if (res.status === 401) {
+      return { name: "TMDB API", icon: "🎥", ok: false, detail: "API Key 无效", latency };
+    }
+    return { name: "TMDB API", icon: "🎥", ok: false, detail: `HTTP ${res.status}`, latency };
+  } catch (e: any) {
+    return { name: "TMDB API", icon: "🎥", ok: false, detail: `连接失败: ${e.message}`, latency: Date.now() - start };
+  }
+}
+
+// 检测 HCTI API 连通性
+async function checkHcti(env: Env): Promise<CheckResult> {
+  if (!env.HCTI_API_ID || !env.HCTI_API_KEY) {
+    return { name: "HCTI 截图", icon: "🖼️", ok: false, detail: "HCTI_API_ID 或 HCTI_API_KEY 未配置", latency: 0 };
+  }
+  const start = Date.now();
+  try {
+    const auth = btoa(`${env.HCTI_API_ID}:${env.HCTI_API_KEY}`);
+    const res = await fetch("https://hcti.io/v1/image", {
+      method: "POST",
+      headers: {
+        "Authorization": `Basic ${auth}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        html: "<div style='padding:20px;font-size:24px;color:#333;'>RMBD 连通性测试 ✅</div>",
+        css: ""
+      })
+    });
+    const latency = Date.now() - start;
+
+    if (res.ok) {
+      const json: any = await res.json();
+      if (json.url) {
+        return { name: "HCTI 截图", icon: "🖼️", ok: true, detail: `渲染成功`, latency };
+      }
+    }
+    if (res.status === 401 || res.status === 403) {
+      return { name: "HCTI 截图", icon: "🖼️", ok: false, detail: "API 认证失败，请检查 ID 和 Key", latency };
+    }
+    return { name: "HCTI 截图", icon: "🖼️", ok: false, detail: `HTTP ${res.status}`, latency };
+  } catch (e: any) {
+    return { name: "HCTI 截图", icon: "🖼️", ok: false, detail: `连接失败: ${e.message}`, latency: Date.now() - start };
+  }
+}
+
+// 构建诊断结果 HTML 页面
+function buildStatusHtml(results: CheckResult[]): string {
+  const passCount = results.filter(r => r.ok).length;
+  const totalCount = results.length;
+  const allPass = passCount === totalCount;
+
+  const rows = results.map(r => {
+    const statusBadge = r.ok
+      ? '<span class="badge pass">✅ 正常</span>'
+      : '<span class="badge fail">❌ 异常</span>';
+    const latencyText = r.latency > 0 ? `${r.latency}ms` : '-';
+    return `
+      <tr>
+        <td class="svc-name">${r.icon} ${r.name}</td>
+        <td>${statusBadge}</td>
+        <td class="detail">${r.detail}</td>
+        <td class="latency">${latencyText}</td>
+      </tr>`;
+  }).join('');
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RMBD 系统诊断</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: #0f1117;
+      color: #e1e4e8;
+      min-height: 100vh;
+      padding: 40px 20px;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    .header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+    }
+    .header p { color: #8b949e; font-size: 14px; }
+
+    .summary {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+    .summary-card {
+      background: ${allPass ? 'rgba(56, 161, 105, 0.1)' : 'rgba(229, 62, 62, 0.1)'};
+      border: 1px solid ${allPass ? 'rgba(56, 161, 105, 0.3)' : 'rgba(229, 62, 62, 0.3)'};
+      border-radius: 12px;
+      padding: 20px 40px;
+      text-align: center;
+    }
+    .summary-card .big {
+      font-size: 36px;
+      font-weight: 700;
+      color: ${allPass ? '#38a169' : '#e53e3e'};
+    }
+    .summary-card .label { color: #8b949e; font-size: 13px; margin-top: 4px; }
+
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+    .card-title {
+      padding: 16px 24px;
+      font-size: 15px;
+      font-weight: 600;
+      color: #c9d1d9;
+      border-bottom: 1px solid #21262d;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      text-align: left;
+      padding: 12px 24px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #8b949e;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid #21262d;
+    }
+    td {
+      padding: 14px 24px;
+      font-size: 14px;
+      border-bottom: 1px solid #21262d;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover { background: rgba(255,255,255,0.02); }
+
+    .svc-name { font-weight: 600; white-space: nowrap; }
+    .detail { color: #8b949e; font-size: 13px; max-width: 300px; word-break: break-word; }
+    .latency { color: #8b949e; font-size: 13px; text-align: right; font-family: monospace; }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .badge.pass { background: rgba(56, 161, 105, 0.15); color: #68d391; }
+    .badge.fail { background: rgba(229, 62, 62, 0.15); color: #fc8181; }
+
+    .actions {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin-top: 32px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 28px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s;
+      cursor: pointer;
+      border: none;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+    }
+    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-secondary {
+      background: #21262d;
+      color: #c9d1d9;
+      border: 1px solid #30363d;
+    }
+    .btn-secondary:hover { background: #30363d; }
+    .btn-success {
+      background: linear-gradient(135deg, #38a169, #2f855a);
+      color: white;
+    }
+    .btn-success:hover { opacity: 0.9; transform: translateY(-1px); }
+
+    .footer {
+      text-align: center;
+      margin-top: 40px;
+      color: #484f58;
+      font-size: 12px;
+    }
+
+    @media (max-width: 640px) {
+      th:nth-child(4), td.latency { display: none; }
+      td { padding: 10px 14px; }
+      th { padding: 10px 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🎬 RMBD 系统诊断</h1>
+      <p>影视榜单推送机器人 · 连通性检测</p>
+    </div>
+
+    <div class="summary">
+      <div class="summary-card">
+        <div class="big">${passCount} / ${totalCount}</div>
+        <div class="label">${allPass ? '🎉 全部服务正常' : '⚠️ 部分服务异常'}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📡 服务连通性检测结果</div>
+      <table>
+        <thead>
+          <tr>
+            <th>服务</th>
+            <th>状态</th>
+            <th>详情</th>
+            <th style="text-align:right">延迟</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+
+    <div class="actions">
+      <a href="/status" class="btn btn-secondary">🔄 重新检测</a>
+      ${allPass ? '<a href="/run" class="btn btn-success">🚀 立即推送</a>' : ''}
+      <a href="/test-tg" class="btn btn-primary">📨 发送 TG 测试消息</a>
+    </div>
+
+    <div class="footer">
+      检测时间: ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })} · Powered by Cloudflare Workers
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+// 发送 TG 测试文本消息
+async function sendTestTelegramMessage(env: Env): Promise<{ ok: boolean; detail: string }> {
+  if (!env.TG_BOT_TOKEN || !env.TG_CHAT_ID) {
+    return { ok: false, detail: "TG_BOT_TOKEN 或 TG_CHAT_ID 未配置" };
+  }
+  try {
+    const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+    const res = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: env.TG_CHAT_ID,
+        text: `✅ <b>RMBD 连通性测试成功</b>\n\n🕐 时间: ${now}\n🤖 Bot 运行正常，消息推送通道畅通！`,
+        parse_mode: "HTML"
+      })
+    });
+    const json: any = await res.json();
+    if (json.ok) {
+      return { ok: true, detail: `消息已成功发送至 Chat ${env.TG_CHAT_ID}` };
+    }
+    return { ok: false, detail: `发送失败: ${json.description}` };
+  } catch (e: any) {
+    return { ok: false, detail: `请求异常: ${e.message}` };
+  }
+}
+
+// ==========================================
 // Worker 导出
 // ==========================================
 export default {
@@ -266,23 +682,51 @@ export default {
     ctx.waitUntil(runBotTask(env));
   },
 
-  // HTTP 请求入口 (手动触发 & 状态检查)
+  // HTTP 请求入口
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    // 路由：手动触发推送任务进行测试
-    if (request.method === "GET" && url.pathname === "/run") {
-      runBotTask(env).catch(console.error);
-      return new Response("🚀 抓取与图文生成任务已在后台启动！请稍后查看 Telegram。", {
-        status: 200,
-        headers: { "Content-Type": "text/plain;charset=UTF-8" }
-      });
+    // 路由：系统诊断页面
+    if (request.method === "GET" && url.pathname === "/status") {
+      // 并发执行所有检测
+      const results = await Promise.all([
+        Promise.resolve(checkEnvVars(env)),
+        checkTelegram(env),
+        checkTelegramChat(env),
+        checkMoviePilot(env),
+        checkTmdb(env),
+        checkHcti(env),
+      ]);
+      const html = buildStatusHtml(results);
+      return new Response(html, { headers: { "Content-Type": "text/html;charset=UTF-8" } });
     }
 
-    // 默认路由：状态页
-    return new Response(
-      "✅ RMBD Bot is running.\n\n👉 访问 /run 手动触发一次推送\n📋 环境变量请在 Cloudflare Dashboard 中配置",
-      { status: 200, headers: { "Content-Type": "text/plain;charset=UTF-8" } }
-    );
+    // 路由：发送 TG 测试消息
+    if (request.method === "GET" && url.pathname === "/test-tg") {
+      const result = await sendTestTelegramMessage(env);
+      const emoji = result.ok ? "✅" : "❌";
+      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="3;url=/status">
+        <style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#0f1117;color:#e1e4e8;margin:0;}
+        .msg{text-align:center;padding:40px;background:#161b22;border:1px solid #30363d;border-radius:16px;}
+        h2{margin:0 0 12px;font-size:20px;}p{color:#8b949e;font-size:14px;margin:8px 0 0;}</style></head>
+        <body><div class="msg"><h2>${emoji} ${result.ok ? 'TG 测试消息已发送' : 'TG 测试消息发送失败'}</h2>
+        <p>${result.detail}</p><p>3 秒后返回诊断页面...</p></div></body></html>`;
+      return new Response(html, { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+    }
+
+    // 路由：手动触发推送任务
+    if (request.method === "GET" && url.pathname === "/run") {
+      runBotTask(env).catch(console.error);
+      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="5;url=/status">
+        <style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#0f1117;color:#e1e4e8;margin:0;}
+        .msg{text-align:center;padding:40px;background:#161b22;border:1px solid #30363d;border-radius:16px;}
+        h2{margin:0 0 12px;font-size:20px;}p{color:#8b949e;font-size:14px;margin:8px 0 0;}</style></head>
+        <body><div class="msg"><h2>🚀 推送任务已启动</h2><p>任务已在后台运行，请稍后查看 Telegram 频道。</p>
+        <p>5 秒后返回诊断页面...</p></div></body></html>`;
+      return new Response(html, { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+    }
+
+    // 默认路由：重定向到诊断页
+    return Response.redirect(new URL("/status", request.url).toString(), 302);
   }
 } satisfies ExportedHandler<Env>;
