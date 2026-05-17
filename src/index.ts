@@ -8,6 +8,7 @@ interface TargetBank {
   path?: string;
   type: "movie" | "tv" | "mixed";
   tag?: string;
+  collection_id?: string;
 }
 
 // 目标榜单配置 (直接访问 TMDB 和 豆瓣 API)
@@ -19,7 +20,8 @@ const TARGET_BANKS: TargetBank[] = [
   { name: "🔥 豆瓣热门电影", source: "douban", type: "movie", tag: "热门" },
   { name: "🆕 豆瓣最新电影", source: "douban", type: "movie", tag: "最新" },
   { name: "📡 豆瓣热门剧集", source: "douban", type: "tv", tag: "热门" },
-  { name: "✨ 豆瓣最新剧集", source: "douban", type: "tv", tag: "最新" }
+  { name: "✨ 豆瓣最新剧集", source: "douban", type: "tv", tag: "最新" },
+  { name: "📈 豆瓣实时热门剧集", source: "douban", type: "tv", collection_id: "tv_real_time_hotest" }
 ];
 
 // ==========================================
@@ -131,11 +133,18 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
       });
     }
 
-  } else if (bank.source === "douban" && bank.tag) {
-    const url = `https://movie.douban.com/j/search_subjects?type=${bank.type}&tag=${encodeURIComponent(bank.tag)}&sort=recommend&page_limit=20&page_start=0`;
+  } else if (bank.source === "douban") {
+    let url = "";
+    if (bank.collection_id) {
+      url = `https://m.douban.com/rexxar/api/v2/subject_collection/${bank.collection_id}/items?start=0&count=20`;
+    } else if (bank.tag) {
+      url = `https://movie.douban.com/j/search_subjects?type=${bank.type}&tag=${encodeURIComponent(bank.tag)}&sort=recommend&page_limit=20&page_start=0`;
+    }
+
     const res = await fetch(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://m.douban.com/subject_collection/" + (bank.collection_id || "")
       }
     });
     
@@ -144,16 +153,29 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
       return [];
     }
     const data: any = await res.json();
-    const subjects = data.subjects || [];
 
-    for (const s of subjects.slice(0, 20)) {
-      items.push({
-        id: s.id,
-        media_type: bank.type,
-        title: s.title,
-        overview: "", 
-        rating: parseFloat(s.rate || "0")
-      });
+    if (bank.collection_id) {
+      const subjects = data.subject_collection_items || [];
+      for (const s of subjects.slice(0, 20)) {
+        items.push({
+          id: s.id,
+          media_type: s.type || bank.type,
+          title: s.title,
+          overview: "", 
+          rating: s.rating ? parseFloat(s.rating.value || "0") : 0
+        });
+      }
+    } else {
+      const subjects = data.subjects || [];
+      for (const s of subjects.slice(0, 20)) {
+        items.push({
+          id: s.id,
+          media_type: bank.type,
+          title: s.title,
+          overview: "", 
+          rating: parseFloat(s.rate || "0")
+        });
+      }
     }
   }
 
