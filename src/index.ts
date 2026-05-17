@@ -504,7 +504,7 @@ export default {
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(runBotTask(env));
   },
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (request.method === "GET" && url.pathname === "/status") {
@@ -523,7 +523,7 @@ export default {
     }
 
     if (request.method === "GET" && url.pathname === "/run") {
-      runBotTask(env).catch(console.error);
+      ctx.waitUntil(runBotTask(env).catch(console.error));
       return new Response(`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="3;url=/status">
         <style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#0f1117;color:#e1e4e8;margin:0;}</style></head>
         <body><div style="text-align:center"><h2>🚀 推送任务已在后台启动</h2><p>请稍后查看 Telegram</p></div></body></html>`, 
