@@ -21,7 +21,12 @@ const TARGET_BANKS: TargetBank[] = [
   { name: "🆕 豆瓣最新电影", source: "douban", type: "movie", tag: "最新" },
   { name: "📡 豆瓣热门剧集", source: "douban", type: "tv", tag: "热门" },
   { name: "✨ 豆瓣最新剧集", source: "douban", type: "tv", tag: "最新" },
-  { name: "📈 豆瓣实时热门剧集", source: "douban", type: "tv", collection_id: "tv_real_time_hotest" }
+  { name: "📈 豆瓣实时热门剧集", source: "douban", type: "tv", collection_id: "tv_real_time_hotest" },
+  { name: "📺 豆瓣华语口碑剧集", source: "douban", type: "tv", collection_id: "tv_chinese_best_weekly" },
+  { name: "🌍 豆瓣全球口碑剧集", source: "douban", type: "tv", collection_id: "tv_global_best_weekly" },
+  { name: "🎤 豆瓣国内口碑综艺", source: "douban", type: "tv", collection_id: "show_chinese_best_weekly" },
+  { name: "🏅 豆瓣一周口碑电影", source: "douban", type: "movie", collection_id: "movie_weekly_best" },
+  { name: "🌟 豆瓣精选合集", source: "douban", type: "mixed", collection_id: "ECQM7YUOQ" }
 ];
 
 // ==========================================
