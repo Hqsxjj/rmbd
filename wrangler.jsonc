@@ -22,10 +22,6 @@
 	"vars": {
 		// TMDB API 密钥 (从 themoviedb.org 获取)
 		"TMDB_API_KEY": "6cb0121723c7904c862317c62665cbaf",
-		// HtmlCssToImage API User ID (从 htmlcsstoimage.com 获取)
-		"HCTI_API_ID": "01KRT1WE15XT6X6D87N16Q8CKH",
-		// HtmlCssToImage API Key
-		"HCTI_API_KEY": "019e341e-3825-7962-adac-9e160818f301",
 		// Telegram Bot Token (从 @BotFather 获取)
 		"TG_BOT_TOKEN": "8875150371:AAFcu1QJq3t41nTD7YyE4dczoXJwn1RBIGM",
 		// Telegram Chat ID (频道/群组/用户 ID)

@@ -28,8 +28,6 @@ const TARGET_BANKS: TargetBank[] = [
 
 interface Env {
   TMDB_API_KEY: string;
-  HCTI_API_ID: string;
-  HCTI_API_KEY: string;
   TG_BOT_TOKEN: string;
   TG_CHAT_ID: string;
 }
@@ -60,7 +58,6 @@ interface BankItem {
 // 通过标题搜索 TMDB 获取 ID
 async function searchTmdbByTitle(title: string, type: string, apiKey: string): Promise<number | null> {
   if (!title || !apiKey) return null;
-  // mixed falls back to multi search
   const searchType = type === "mixed" ? "multi" : type;
   try {
     const url = `https://api.themoviedb.org/3/search/${searchType}?api_key=${apiKey}&query=${encodeURIComponent(title)}&language=zh-CN&page=1`;
@@ -115,7 +112,6 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
   const items: BankItem[] = [];
 
   if (bank.source === "tmdb" && bank.path) {
-    // 抓取 TMDB 榜单
     const url = `https://api.themoviedb.org/3${bank.path}?api_key=${env.TMDB_API_KEY}&language=zh-CN&page=1`;
     const res = await fetch(url);
     if (!res.ok) {
@@ -125,7 +121,6 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
     const data: any = await res.json();
     const results = data.results || [];
     
-    // 取前 20，并格式化
     for (const r of results.slice(0, 20)) {
       items.push({
         tmdb_id: r.id,
@@ -137,9 +132,7 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
     }
 
   } else if (bank.source === "douban" && bank.tag) {
-    // 抓取 豆瓣 榜单
     const url = `https://movie.douban.com/j/search_subjects?type=${bank.type}&tag=${encodeURIComponent(bank.tag)}&sort=recommend&page_limit=20&page_start=0`;
-    // 伪装浏览器 UA 防止被盾
     const res = await fetch(url, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -158,7 +151,7 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
         id: s.id,
         media_type: bank.type,
         title: s.title,
-        overview: "", // 豆瓣该接口不返回简介，将在 TMDB 补全
+        overview: "", 
         rating: parseFloat(s.rate || "0")
       });
     }
@@ -168,7 +161,7 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
 }
 
 // ==========================================
-// HTML 与图片渲染
+// HTML 网页渲染
 // ==========================================
 
 function buildHtml(bankName: string, items: BankItem[]): string {
@@ -182,7 +175,7 @@ function buildHtml(bankName: string, items: BankItem[]): string {
 
     const title = item.title || item.name || '未知影视';
     const year = item.tmdbDetails?.date || '未知';
-    const desc = item.overview ? item.overview.substring(0, 60) + '...' : '暂无详细简介';
+    const desc = item.overview ? item.overview.substring(0, 100) + '...' : '暂无详细简介';
     const score = item.vote_average || item.rating || 'N/A';
     const posterSrc = item.tmdbDetails?.poster || 'https://via.placeholder.com/140x200/cccccc/ffffff?text=No+Poster';
     const actors = item.tmdbDetails?.actors || '暂无演员信息';
@@ -191,7 +184,7 @@ function buildHtml(bankName: string, items: BankItem[]): string {
     cardsHtml += `
       <div class="movie-card">
         <div class="rank-badge ${rankClass}">${index + 1}</div>
-        <img class="poster" src="${posterSrc}" />
+        <img class="poster" src="${posterSrc}" alt="${title}" loading="lazy" />
         <div class="info-area">
           <h2 class="title">${title}</h2>
           <div class="meta-tags">${year} / ${companies}</div>
@@ -199,86 +192,97 @@ function buildHtml(bankName: string, items: BankItem[]): string {
           <div class="cast">👥 ${actors}</div>
         </div>
         <div class="rating-area">
-          <div style="color: #888; font-size: 16px; margin-bottom: 8px;">综合评分</div>
+          <div class="rating-label">综合评分</div>
           <div class="score">${typeof score === 'number' ? score.toFixed(1) : score}</div>
         </div>
       </div>
     `;
   });
 
-  return `
-    <!DOCTYPE html>
-    <html lang="zh-CN">
-    <head>
-    <meta charset="UTF-8">
-    <style>
-      body { background-color: #F8F3ED; font-family: "PingFang SC", "Microsoft YaHei", sans-serif; padding: 40px; width: 850px; margin: 0; }
-      .header { background: linear-gradient(135deg, #1f1c2c, #928DAB); border-radius: 20px; padding: 40px; margin-bottom: 40px; color: white; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.15); }
-      .header h1 { margin: 0; font-size: 52px; font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }
-      .header p { color: #eee; font-size: 20px; margin-top: 15px; letter-spacing: 2px; }
-      .movie-card { display: flex; background: #FFF; border-radius: 16px; padding: 24px; margin-bottom: 28px; box-shadow: 0 8px 24px rgba(0,0,0,0.06); position: relative; border: 1px solid rgba(0,0,0,0.02); }
-      .rank-badge { position: absolute; top: -12px; left: -12px; width: 48px; height: 60px; border-radius: 8px 8px 16px 8px; color: white; font-size: 32px; font-weight: bold; text-align: center; line-height: 54px; box-shadow: 2px 4px 10px rgba(0,0,0,0.2); }
-      .top1 { background: linear-gradient(135deg, #FF416C, #FF4B2B); }
-      .top2 { background: linear-gradient(135deg, #F37335, #FDC830); }
-      .top3 { background: linear-gradient(135deg, #fceabb, #f8b500); color: #a67c00; }
-      .normal-rank { background: #9E9E9E; }
-      .poster { width: 140px; height: 200px; border-radius: 8px; object-fit: cover; margin-right: 24px; margin-left: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); background-color: #f5f5f5;}
-      .info-area { flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding-top: 4px; }
-      .title { font-size: 32px; margin: 0 0 10px 0; color: #222; font-weight: 800; }
-      .meta-tags { color: #666; font-size: 18px; margin-bottom: 12px; }
-      .description { color: #555; font-size: 17px; line-height: 1.6; }
-      .cast { font-size: 18px; color: #333; margin-top: 12px; font-weight: 500; }
-      .rating-area { width: 140px; text-align: center; border-left: 2px dashed #E0E0E0; padding-left: 20px; display: flex; flex-direction: column; justify-content: center; }
-      .score { font-size: 64px; font-weight: bold; color: #FF9800; font-family: "Impact", sans-serif; letter-spacing: 1px; }
-    </style>
-    </head>
-    <body>
-      <div class="header">
-        <h1>${bankName}</h1>
-        <p>每日 TOP 20 推荐 · ${new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' })}</p>
-      </div>
-      ${cardsHtml}
-    </body>
-    </html>
-  `;
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${bankName} - RMBD 每日推荐</title>
+  <style>
+    body { background-color: #F8F3ED; font-family: "PingFang SC", "Microsoft YaHei", sans-serif; padding: 20px; margin: 0; color: #333; }
+    .container { max-width: 850px; margin: 0 auto; }
+    .header { background: linear-gradient(135deg, #1f1c2c, #928DAB); border-radius: 20px; padding: 40px 20px; margin-bottom: 40px; color: white; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.15); }
+    .header h1 { margin: 0; font-size: clamp(32px, 5vw, 52px); font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }
+    .header p { color: #eee; font-size: 16px; margin-top: 15px; letter-spacing: 1px; opacity: 0.9; }
+    .movie-card { display: flex; background: #FFF; border-radius: 16px; padding: 24px; margin-bottom: 28px; box-shadow: 0 8px 24px rgba(0,0,0,0.06); position: relative; border: 1px solid rgba(0,0,0,0.02); transition: transform 0.2s ease; }
+    .movie-card:hover { transform: translateY(-3px); box-shadow: 0 12px 32px rgba(0,0,0,0.1); }
+    .rank-badge { position: absolute; top: -12px; left: -12px; width: 48px; height: 60px; border-radius: 8px 8px 16px 8px; color: white; font-size: 28px; font-weight: bold; text-align: center; line-height: 54px; box-shadow: 2px 4px 10px rgba(0,0,0,0.2); z-index: 10; }
+    .top1 { background: linear-gradient(135deg, #FF416C, #FF4B2B); }
+    .top2 { background: linear-gradient(135deg, #F37335, #FDC830); }
+    .top3 { background: linear-gradient(135deg, #fceabb, #f8b500); color: #a67c00; }
+    .normal-rank { background: #9E9E9E; }
+    .poster { width: 140px; height: 200px; border-radius: 8px; object-fit: cover; margin-right: 24px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); background-color: #f5f5f5; flex-shrink: 0; }
+    .info-area { flex: 1; display: flex; flex-direction: column; min-width: 0; justify-content: center; }
+    .title { font-size: 28px; margin: 0 0 8px 0; color: #222; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .meta-tags { color: #666; font-size: 15px; margin-bottom: 12px; font-weight: 500; }
+    .description { color: #555; font-size: 15px; line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    .cast { font-size: 14px; color: #444; margin-top: auto; padding-top: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rating-area { width: 120px; text-align: center; border-left: 2px dashed #E0E0E0; margin-left: 20px; display: flex; flex-direction: column; justify-content: center; flex-shrink: 0; }
+    .rating-label { color: #888; font-size: 14px; margin-bottom: 4px; font-weight: 500; }
+    .score { font-size: 48px; font-weight: bold; color: #FF9800; font-family: "Impact", sans-serif; letter-spacing: 1px; }
+    
+    @media (max-width: 640px) {
+      .movie-card { flex-direction: column; padding: 16px; align-items: center; text-align: center; }
+      .poster { margin: 10px 0 20px 0; width: 160px; height: 230px; }
+      .rating-area { width: 100%; border-left: none; border-top: 2px dashed #E0E0E0; margin-left: 0; margin-top: 16px; padding-top: 16px; flex-direction: row; align-items: center; justify-content: center; gap: 12px; }
+      .score { font-size: 36px; }
+      .title { white-space: normal; }
+      .description { -webkit-line-clamp: 4; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>${bankName}</h1>
+      <p>每日 TOP 20 推荐 · ${new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' })}</p>
+    </div>
+    ${cardsHtml}
+    <div style="text-align:center; padding: 20px; color: #888; font-size: 14px;">
+      Powered by RMBD Cloudflare Worker
+    </div>
+  </div>
+</body>
+</html>`;
 }
 
-async function renderHtmlToImage(html: string, apiId: string, apiKey: string): Promise<string | null> {
-  const auth = btoa(`${apiId}:${apiKey}`);
-  try {
-    const response = await fetch("https://hcti.io/v1/image", {
-      method: "POST",
-      headers: {
-        "Authorization": `Basic ${auth}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ html: html, css: "", google_fonts: "PingFang SC" })
-    });
+// ==========================================
+// 主流程
+// ==========================================
 
-    const result: any = await response.json();
-    return result.url;
-  } catch (err) {
-    console.error("请求 HCTI 截图失败:", err);
-    return null;
-  }
-}
+async function sendSummaryToTelegram(env: Env, baseUrl: string): Promise<void> {
+  const tgUrl = `https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`;
+  
+  const now = new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' });
+  let text = `🎬 <b>RMBD 每日影视榜单已更新</b> (${now})\n\n`;
+  
+  TARGET_BANKS.forEach((bank, index) => {
+    text += `👉 <a href="${baseUrl}/view/${index}">${bank.name}</a>\n`;
+  });
+  
+  text += `\n点击上方链接可直接在浏览器查看高清图文榜单！🍿`;
 
-async function sendPhotoToTelegram(photoUrl: string, caption: string, env: Env): Promise<void> {
-  const tgUrl = `https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendPhoto`;
   try {
     const res = await fetch(tgUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         chat_id: env.TG_CHAT_ID,
-        photo: photoUrl,
-        caption: caption,
-        parse_mode: "HTML"
+        text: text,
+        parse_mode: "HTML",
+        disable_web_page_preview: true
       })
     });
 
     if (res.ok) {
-      console.log(`✅ 图片推送至 TG 成功: ${photoUrl}`);
+      console.log(`✅ 文本汇总已推送至 TG`);
     } else {
       const errJson = await res.json();
       console.error("TG 推送失败:", errJson);
@@ -288,66 +292,19 @@ async function sendPhotoToTelegram(photoUrl: string, caption: string, env: Env):
   }
 }
 
-// ==========================================
-// 主流程
-// ==========================================
+async function runBotTask(env: Env, requestUrl: string): Promise<void> {
+  console.log("启动定时汇总任务...");
 
-async function processAllBanks(env: Env): Promise<void> {
-  for (const bank of TARGET_BANKS) {
-    try {
-      console.log(`正在处理榜单: ${bank.name}`);
-
-      // 1. 抓取榜单数据 (TMDB 或 豆瓣)
-      const items = await fetchBankData(bank, env);
-      if (items.length === 0) continue;
-
-      // 2. 并发请求 TMDB 补全详情
-      const hydratedItems = await Promise.all(items.map(async (item) => {
-        let tmdbId = item.tmdb_id;
-        const itemType = item.media_type || bank.type || "movie";
-
-        // 如果是豆瓣来源没有 tmdb_id，通过标题搜索获取
-        if (!tmdbId && item.title) {
-          tmdbId = (await searchTmdbByTitle(item.title, itemType, env.TMDB_API_KEY)) || undefined;
-        }
-
-        // 抓取详情
-        if (tmdbId) {
-          const tmdbDetails = await fetchTmdbDetails(tmdbId, itemType, env.TMDB_API_KEY);
-          return { ...item, tmdbDetails };
-        } else {
-           // 无法匹配 TMDB 时使用空详情
-          return { ...item, tmdbDetails: { actors: "暂无", companies: "暂无", date: "未知", poster: "" } };
-        }
-      }));
-
-      // 3. 构建精美的 HTML
-      const htmlContent = buildHtml(bank.name, hydratedItems);
-
-      // 4. 调用 HCTI 渲染长图
-      const imageUrl = await renderHtmlToImage(htmlContent, env.HCTI_API_ID, env.HCTI_API_KEY);
-
-      if (imageUrl) {
-        // 5. 将生成的长图推送到 Telegram
-        await sendPhotoToTelegram(imageUrl, `<b>【${bank.name}】</b> 今日 Top 20 更新啦！`, env);
-      }
-
-    } catch (e) {
-      console.error(`处理榜单 ${bank.name} 发生异常:`, e);
-    }
-  }
-  console.log("所有榜单处理完毕！");
-}
-
-async function runBotTask(env: Env): Promise<void> {
-  console.log("启动抓取任务，正在从环境变量加载配置...");
-
-  if (!env.TMDB_API_KEY || !env.TG_BOT_TOKEN || !env.HCTI_API_ID) {
-    console.error("环境变量配置不完整，请配置 TMDB, TG, HCTI 变量。");
+  if (!env.TMDB_API_KEY || !env.TG_BOT_TOKEN) {
+    console.error("环境变量配置不完整，请配置 TMDB, TG 变量。");
     return;
   }
 
-  await processAllBanks(env);
+  const urlObj = new URL(requestUrl);
+  const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
+
+  // 发送只包含链接的文本消息到 TG
+  await sendSummaryToTelegram(env, baseUrl);
 }
 
 // ==========================================
@@ -365,8 +322,6 @@ interface CheckResult {
 function checkEnvVars(env: Env): CheckResult {
   const vars = [
     { key: "TMDB_API_KEY", label: "TMDB API Key" },
-    { key: "HCTI_API_ID", label: "HCTI API ID" },
-    { key: "HCTI_API_KEY", label: "HCTI API Key" },
     { key: "TG_BOT_TOKEN", label: "TG Bot Token" },
     { key: "TG_CHAT_ID", label: "TG Chat ID" },
   ];
@@ -438,22 +393,6 @@ async function checkDouban(): Promise<CheckResult> {
   }
 }
 
-async function checkHcti(env: Env): Promise<CheckResult> {
-  if (!env.HCTI_API_ID || !env.HCTI_API_KEY) return { name: "HCTI 截图", icon: "🖼️", ok: false, detail: "未配置", latency: 0 };
-  const start = Date.now();
-  try {
-    const res = await fetch("https://hcti.io/v1/image", {
-      method: "POST",
-      headers: { "Authorization": `Basic ${btoa(`${env.HCTI_API_ID}:${env.HCTI_API_KEY}`)}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ html: "<div>OK</div>", css: "" })
-    });
-    if (res.ok) return { name: "HCTI 截图", icon: "🖼️", ok: true, detail: `渲染成功`, latency: Date.now() - start };
-    return { name: "HCTI 截图", icon: "🖼️", ok: false, detail: `HTTP ${res.status}`, latency: Date.now() - start };
-  } catch (e: any) {
-    return { name: "HCTI 截图", icon: "🖼️", ok: false, detail: `连接失败: ${e.message}`, latency: Date.now() - start };
-  }
-}
-
 function buildStatusHtml(results: CheckResult[]): string {
   const passCount = results.filter(r => r.ok).length;
   const totalCount = results.length;
@@ -502,18 +441,65 @@ async function sendTestTelegramMessage(env: Env): Promise<{ ok: boolean; detail:
 // ==========================================
 export default {
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(runBotTask(env));
+    // 默认提供一个伪造的基础 URL 供定时任务使用
+    ctx.waitUntil(runBotTask(env, "https://rmbd.workers.dev"));
   },
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
+    // 路由：动态渲染指定榜单的网页
+    if (request.method === "GET" && url.pathname.startsWith("/view/")) {
+      const parts = url.pathname.split("/");
+      const bankIndex = parseInt(parts[2], 10);
+      
+      if (isNaN(bankIndex) || bankIndex < 0 || bankIndex >= TARGET_BANKS.length) {
+        return new Response("❌ 找不到对应的榜单", { status: 404, headers: { "Content-Type": "text/plain;charset=UTF-8" } });
+      }
+      
+      const bank = TARGET_BANKS[bankIndex];
+      
+      try {
+        // 1. 抓取该榜单的 20 条数据
+        const items = await fetchBankData(bank, env);
+        if (items.length === 0) {
+          return new Response("❌ 获取榜单数据为空", { status: 500, headers: { "Content-Type": "text/plain;charset=UTF-8" } });
+        }
+
+        // 2. 并发请求 TMDB 补全详情
+        const hydratedItems = await Promise.all(items.map(async (item) => {
+          let tmdbId = item.tmdb_id;
+          const itemType = item.media_type || bank.type || "movie";
+
+          if (!tmdbId && item.title) {
+            tmdbId = (await searchTmdbByTitle(item.title, itemType, env.TMDB_API_KEY)) || undefined;
+          }
+
+          if (tmdbId) {
+            const tmdbDetails = await fetchTmdbDetails(tmdbId, itemType, env.TMDB_API_KEY);
+            return { ...item, tmdbDetails };
+          } else {
+            return { ...item, tmdbDetails: { actors: "暂无", companies: "暂无", date: "未知", poster: "" } };
+          }
+        }));
+
+        // 3. 构建网页并返回
+        const htmlContent = buildHtml(bank.name, hydratedItems);
+        return new Response(htmlContent, { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+
+      } catch (e: any) {
+        return new Response(`❌ 渲染网页发生异常: ${e.message}`, { status: 500, headers: { "Content-Type": "text/plain;charset=UTF-8" } });
+      }
+    }
+
+    // 路由：系统诊断页面
     if (request.method === "GET" && url.pathname === "/status") {
       const results = await Promise.all([
-        Promise.resolve(checkEnvVars(env)), checkTelegram(env), checkTelegramChat(env), checkTmdb(env), checkDouban(), checkHcti(env)
+        Promise.resolve(checkEnvVars(env)), checkTelegram(env), checkTelegramChat(env), checkTmdb(env), checkDouban()
       ]);
       return new Response(buildStatusHtml(results), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
     }
 
+    // 路由：发送 TG 测试消息
     if (request.method === "GET" && url.pathname === "/test-tg") {
       const result = await sendTestTelegramMessage(env);
       return new Response(`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="3;url=/status">
@@ -522,11 +508,12 @@ export default {
         { headers: { "Content-Type": "text/html;charset=UTF-8" } });
     }
 
+    // 路由：手动触发推送任务
     if (request.method === "GET" && url.pathname === "/run") {
-      ctx.waitUntil(runBotTask(env).catch(console.error));
+      ctx.waitUntil(runBotTask(env, request.url).catch(console.error));
       return new Response(`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="3;url=/status">
         <style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#0f1117;color:#e1e4e8;margin:0;}</style></head>
-        <body><div style="text-align:center"><h2>🚀 推送任务已在后台启动</h2><p>请稍后查看 Telegram</p></div></body></html>`, 
+        <body><div style="text-align:center"><h2>🚀 文本汇总链接已推送</h2><p>请稍后查看 Telegram</p></div></body></html>`, 
         { headers: { "Content-Type": "text/html;charset=UTF-8" } });
     }
 
