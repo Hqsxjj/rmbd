@@ -249,12 +249,32 @@ function buildHtml(bankName: string, items: BankItem[]): string {
     `;
   });
 
+  const topItem = items[0];
+  let ogImage = 'https://placehold.co/1200x630/cccccc/ffffff?text=RMBD';
+  if (topItem) {
+    if (topItem.tmdbDetails?.poster) {
+      ogImage = topItem.tmdbDetails.poster;
+    } else if (topItem.douban_poster) {
+      ogImage = `https://images.weserv.nl/?url=${encodeURIComponent(topItem.douban_poster)}`;
+    }
+  }
+  const top3Names = items.slice(0, 3).map(i => i.title || i.name).filter(Boolean).join(' / ');
+  const ogDesc = `今日 TOP3: ${top3Names}。点击查看完整榜单！`;
+
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${bankName} - RMBD 每日推荐</title>
+  <meta property="og:title" content="${bankName} - RMBD 每日推荐">
+  <meta property="og:description" content="${ogDesc}">
+  <meta property="og:image" content="${ogImage}">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${bankName} - RMBD 每日推荐">
+  <meta name="twitter:description" content="${ogDesc}">
+  <meta name="twitter:image" content="${ogImage}">
   <style>
     body { background-color: #F8F3ED; font-family: "PingFang SC", "Microsoft YaHei", sans-serif; padding: 20px; margin: 0; color: #333; }
     .container { max-width: 850px; margin: 0 auto; }
@@ -309,36 +329,43 @@ function buildHtml(bankName: string, items: BankItem[]): string {
 
 async function sendSummaryToTelegram(env: Env, baseUrl: string): Promise<void> {
   const tgUrl = `https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`;
-  
   const now = new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' });
-  let text = `🎬 <b>RMBD 每日影视榜单已更新</b> (${now})\n\n`;
   
-  TARGET_BANKS.forEach((bank, index) => {
-    text += `👉 <a href="${baseUrl}/view/${index}">${bank.name}</a>\n`;
-  });
-  
-  text += `\n点击上方链接可直接在浏览器查看高清图文榜单！🍿`;
-
+  // 1. 发送开场白
+  const introText = `🎬 <b>RMBD 每日影视榜单已更新</b> (${now})\n\n正在为您推送 ${TARGET_BANKS.length} 个精选榜单...`;
   try {
-    const res = await fetch(tgUrl, {
+    await fetch(tgUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: env.TG_CHAT_ID,
-        text: text,
-        parse_mode: "HTML",
-        disable_web_page_preview: true
-      })
+      body: JSON.stringify({ chat_id: env.TG_CHAT_ID, text: introText, parse_mode: "HTML", disable_web_page_preview: true })
     });
-
-    if (res.ok) {
-      console.log(`✅ 文本汇总已推送至 TG`);
-    } else {
-      const errJson = await res.json();
-      console.error("TG 推送失败:", errJson);
-    }
   } catch (err) {
-    console.error("请求 TG API 异常:", err);
+    console.error("发送 TG 开场白异常:", err);
+  }
+
+  // 2. 依次发送每个榜单，允许预览
+  for (let index = 0; index < TARGET_BANKS.length; index++) {
+    const bank = TARGET_BANKS[index];
+    const text = `👉 <b>${bank.name}</b>\n<a href="${baseUrl}/view/${index}">🔗 点击此处查看网页版榜单</a>`;
+    
+    try {
+      const res = await fetch(tgUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: env.TG_CHAT_ID,
+          text: text,
+          parse_mode: "HTML"
+          // 不再设置 disable_web_page_preview，使用 Telegram 默认的抓取行为
+        })
+      });
+      if (!res.ok) console.error(`TG 推送失败: ${bank.name}`, await res.text());
+    } catch (err) {
+      console.error(`请求 TG API 异常: ${bank.name}`, err);
+    }
+    
+    // 轻微限流，防止触发 TG 频率限制
+    await new Promise(r => setTimeout(r, 200));
   }
 }
 
