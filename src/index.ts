@@ -56,6 +56,7 @@ interface BankItem {
   vote_average?: number;
   rating?: number;
   tmdbDetails?: TmdbDetails;
+  douban_poster?: string;
 }
 
 // ==========================================
@@ -162,23 +163,37 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
     if (bank.collection_id) {
       const subjects = data.subject_collection_items || [];
       for (const s of subjects.slice(0, 20)) {
+        let poster = "";
+        if (typeof s.cover === "string") poster = s.cover;
+        else if (s.cover?.url) poster = s.cover.url;
+        else if (s.pic?.normal) poster = s.pic.normal;
+        else if (s.pic?.large) poster = s.pic.large;
+
         items.push({
           id: s.id,
           media_type: s.type || bank.type,
           title: s.title,
           overview: "", 
-          rating: s.rating ? parseFloat(s.rating.value || "0") : 0
+          rating: s.rating ? parseFloat(s.rating.value || "0") : 0,
+          douban_poster: poster
         });
       }
     } else {
       const subjects = data.subjects || [];
       for (const s of subjects.slice(0, 20)) {
+        let poster = "";
+        if (typeof s.cover === "string") poster = s.cover;
+        else if (s.cover?.url) poster = s.cover.url;
+        else if (s.cover_url) poster = s.cover_url;
+        else if (s.pic?.normal) poster = s.pic.normal;
+
         items.push({
           id: s.id,
           media_type: bank.type,
           title: s.title,
           overview: "", 
-          rating: parseFloat(s.rate || "0")
+          rating: parseFloat(s.rate || "0"),
+          douban_poster: poster
         });
       }
     }
@@ -204,7 +219,15 @@ function buildHtml(bankName: string, items: BankItem[]): string {
     const year = item.tmdbDetails?.date || '未知';
     const desc = item.overview ? item.overview.substring(0, 100) + '...' : '暂无详细简介';
     const score = item.vote_average || item.rating || 'N/A';
-    const posterSrc = item.tmdbDetails?.poster || 'https://via.placeholder.com/140x200/cccccc/ffffff?text=No+Poster';
+    
+    let posterSrc = item.tmdbDetails?.poster;
+    if (!posterSrc && item.douban_poster) {
+      posterSrc = `https://images.weserv.nl/?url=${encodeURIComponent(item.douban_poster)}`;
+    }
+    if (!posterSrc) {
+      posterSrc = 'https://placehold.co/140x200/cccccc/ffffff?text=No+Poster';
+    }
+
     const actors = item.tmdbDetails?.actors || '暂无演员信息';
     const companies = item.tmdbDetails?.companies || '暂无';
 
