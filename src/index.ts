@@ -577,7 +577,7 @@ td{border-bottom:1px solid #21262d;} .btn{display:inline-block;padding:12px 28px
 </div>
 <div style="margin-top:30px;padding:26px;border-radius:20px;background:#111827;border:1px solid #212638;color:#c9d1d9;">
   <h3 style="margin:0 0 12px;font-size:18px;">🔐 手动推送 PIN 解锁</h3>
-  <p style="margin:0 0 18px;color:#8b949e;line-height:1.6;">当前 PIN：<strong>${MANUAL_PUSH_PIN}</strong>（默认 4321）。请在下方输入 PIN 并提交，支持在此处修改新 PIN。</p>
+  <p style="margin:0 0 18px;color:#8b949e;line-height:1.6;">请在下方输入 PIN 并提交，支持在此处修改新 PIN。</p>
   <form method="POST" action="/run" style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;">
     <input name="pin" placeholder="输入 PIN" required style="flex:1 1 220px;padding:12px 14px;border-radius:12px;border:1px solid #30363d;background:#0f172a;color:#e2e8f0;outline:none;" />
     <input name="new_pin" placeholder="修改 PIN（可选）" style="flex:1 1 220px;padding:12px 14px;border-radius:12px;border:1px solid #30363d;background:#0f172a;color:#e2e8f0;outline:none;" />
