@@ -348,7 +348,8 @@ async function sendSummaryToTelegram(env: Env, baseUrl: string): Promise<void> {
   // 2. 依次发送每个榜单，允许预览
   for (let index = 0; index < TARGET_BANKS.length; index++) {
     const bank = TARGET_BANKS[index];
-    const text = `👉 <b><a href="${baseUrl}/view/${index}">${bank.name}</a></b>`;
+    const targetUrl = `${baseUrl}/view/${index}?t=${Date.now()}`;
+    const text = `👉 <b><a href="${targetUrl}">${bank.name}</a></b>`;
     
     try {
       const res = await fetch(tgUrl, {
@@ -357,8 +358,11 @@ async function sendSummaryToTelegram(env: Env, baseUrl: string): Promise<void> {
         body: JSON.stringify({
           chat_id: env.TG_CHAT_ID,
           text: text,
-          parse_mode: "HTML"
-          // 不再设置 disable_web_page_preview，使用 Telegram 默认的抓取行为
+          parse_mode: "HTML",
+          link_preview_options: {
+            is_disabled: false,
+            url: targetUrl
+          }
         })
       });
       if (!res.ok) console.error(`TG 推送失败: ${bank.name}`, await res.text());
@@ -366,8 +370,8 @@ async function sendSummaryToTelegram(env: Env, baseUrl: string): Promise<void> {
       console.error(`请求 TG API 异常: ${bank.name}`, err);
     }
     
-    // 轻微限流，防止触发 TG 频率限制
-    await new Promise(r => setTimeout(r, 200));
+    // 增加限流延迟，给 Telegram 爬虫足够的时间抓取网页，防止丢弃预览
+    await new Promise(r => setTimeout(r, 1000));
   }
 }
 
