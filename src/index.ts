@@ -4,7 +4,7 @@
 
 interface TargetBank {
   name: string;
-  source: "tmdb" | "douban";
+  source: "tmdb" | "douban" | "maoyan";
   path?: string;
   type: "movie" | "tv" | "mixed";
   tag?: string;
@@ -20,6 +20,7 @@ const TARGET_BANKS: TargetBank[] = [
   { name: "📺 TMDB 热门剧集", source: "tmdb", path: "/tv/popular", type: "tv" },
   { name: "🔥 豆瓣热门电影", source: "douban", type: "movie", tag: "热门" },
   { name: "🆕 豆瓣最新电影", source: "douban", type: "movie", tag: "最新" },
+  { name: "🐱 猫眼热映电影", source: "maoyan", type: "movie" },
   { name: "📡 豆瓣热门剧集", source: "douban", type: "tv", tag: "热门" },
   { name: "✨ 豆瓣最新剧集", source: "douban", type: "tv", tag: "热门", sort: "time" },
   { name: "📈 豆瓣实时热门剧集", source: "douban", type: "tv", collection_id: "tv_real_time_hotest" },
@@ -59,6 +60,9 @@ interface BankItem {
   rating?: number;
   tmdbDetails?: TmdbDetails;
   douban_poster?: string;
+  maoyan_actors?: string;
+  maoyan_rt?: string;
+  maoyan_showInfo?: string;
 }
 
 // ==========================================
@@ -213,6 +217,34 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
         });
       }
     }
+  } else if (bank.source === "maoyan") {
+    const url = 'https://m.maoyan.com/ajax/movieOnInfoList';
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+        "Referer": "https://m.maoyan.com/"
+      }
+    });
+    if (!res.ok) {
+      console.error(`猫眼榜单获取失败: ${bank.name}`);
+      return [];
+    }
+    const data: any = await res.json();
+    const movieList = data.movieList || [];
+    for (const m of movieList.slice(0, 20)) {
+      let poster = m.img ? m.img.replace('w.h', '140.200') : '';
+      items.push({
+        id: m.id,
+        media_type: "movie",
+        title: m.nm,
+        overview: "", 
+        rating: m.sc || 0,
+        douban_poster: poster,
+        maoyan_actors: m.star || '',
+        maoyan_rt: m.rt || '',
+        maoyan_showInfo: m.showInfo || ''
+      });
+    }
   }
 
   return items;
@@ -232,7 +264,7 @@ function buildHtml(bankName: string, items: BankItem[]): string {
     else if (index === 2) rankClass = 'top3';
 
     const title = item.title || item.name || '未知影视';
-    const year = item.tmdbDetails?.date || '未知';
+    const year = item.tmdbDetails?.date && item.tmdbDetails.date !== '未知' ? item.tmdbDetails.date : (item.maoyan_rt || '未知');
     const overviewText = item.overview || item.tmdbDetails?.overview || '';
     const desc = overviewText ? overviewText.substring(0, 100) + '...' : '暂无详细简介';
     const score = item.vote_average || item.rating || 'N/A';
@@ -245,8 +277,10 @@ function buildHtml(bankName: string, items: BankItem[]): string {
       posterSrc = 'https://placehold.co/140x200/cccccc/ffffff?text=No+Poster';
     }
 
-    const actors = item.tmdbDetails?.actors || '暂无演员信息';
+    const actors = (item.tmdbDetails?.actors && item.tmdbDetails.actors !== '暂无演员信息') ? item.tmdbDetails.actors : (item.maoyan_actors || '暂无演员信息');
     const companies = item.tmdbDetails?.companies || '暂无';
+    
+    const showInfoHtml = item.maoyan_showInfo ? `<div style="color:#FF5722; font-size: 14px; font-weight: 600; margin-top: 8px;">🔥 ${item.maoyan_showInfo}</div>` : '';
 
     cardsHtml += `
       <div class="movie-card">
@@ -257,6 +291,7 @@ function buildHtml(bankName: string, items: BankItem[]): string {
           <div class="meta-tags">${year} / ${companies}</div>
           <div class="description">${desc}</div>
           <div class="cast">👥 ${actors}</div>
+          ${showInfoHtml}
         </div>
         <div class="rating-area">
           <div class="rating-label">综合评分</div>
