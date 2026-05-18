@@ -62,8 +62,17 @@ interface BankItem {
 }
 
 // ==========================================
-// 辅助函数: TMDB API
+// 辅助函数: 标题清理 & TMDB API
 // ==========================================
+
+function cleanTitle(title: string): string {
+  if (!title) return "";
+  return title
+    .replace(/第[一二三四五六七八九十\d]+[季部]/g, '') // 去除“第一季”、“第2部”等
+    .replace(/\s\d{4}$/, '') // 去除结尾的年份
+    .replace(/[·：: \-].*$/, '') // 去除副标题 (如 狐妖小红娘·月红篇 -> 狐妖小红娘)
+    .trim();
+}
 
 // 通过标题搜索 TMDB 获取 ID
 async function searchTmdbByTitle(title: string, type: string, apiKey: string): Promise<number | null> {
@@ -230,7 +239,7 @@ function buildHtml(bankName: string, items: BankItem[]): string {
     
     let posterSrc = item.tmdbDetails?.poster;
     if (!posterSrc && item.douban_poster) {
-      posterSrc = `https://wsrv.nl/?url=${encodeURIComponent(item.douban_poster)}`;
+      posterSrc = item.douban_poster; // 依赖 <meta name="referrer" content="no-referrer"> 直接加载
     }
     if (!posterSrc) {
       posterSrc = 'https://placehold.co/140x200/cccccc/ffffff?text=No+Poster';
@@ -274,6 +283,7 @@ function buildHtml(bankName: string, items: BankItem[]): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
   <title>${bankName} - RMBD 每日推荐</title>
   <meta property="og:title" content="${bankName} - RMBD 每日推荐">
   <meta property="og:description" content="${ogDesc}">
@@ -560,7 +570,8 @@ export default {
           const itemType = item.media_type || bank.type || "movie";
 
           if (!tmdbId && item.title) {
-            tmdbId = (await searchTmdbByTitle(item.title, itemType, env.TMDB_API_KEY)) || undefined;
+            const cleanedTitle = cleanTitle(item.title);
+            tmdbId = (await searchTmdbByTitle(cleanedTitle, itemType, env.TMDB_API_KEY)) || undefined;
           }
 
           if (tmdbId) {
