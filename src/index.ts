@@ -45,6 +45,7 @@ interface TmdbDetails {
   companies: string;
   date: string;
   poster: string;
+  overview?: string;
 }
 
 interface BankItem {
@@ -95,6 +96,10 @@ async function fetchTmdbDetails(tmdbId: number, type: string, apiKey: string): P
 
     if (json.poster_path) {
       result.poster = `https://image.tmdb.org/t/p/w500${json.poster_path}`;
+    }
+    
+    if (json.overview) {
+      result.overview = json.overview;
     }
 
     const rawDate = json.release_date || json.first_air_date || "";
@@ -175,7 +180,7 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
           id: s.id,
           media_type: s.type || bank.type,
           title: s.title,
-          overview: "", 
+          overview: s.description || s.info || "", 
           rating: s.rating ? parseFloat(s.rating.value || "0") : 0,
           douban_poster: poster
         });
@@ -219,7 +224,8 @@ function buildHtml(bankName: string, items: BankItem[]): string {
 
     const title = item.title || item.name || '未知影视';
     const year = item.tmdbDetails?.date || '未知';
-    const desc = item.overview ? item.overview.substring(0, 100) + '...' : '暂无详细简介';
+    const overviewText = item.overview || item.tmdbDetails?.overview || '';
+    const desc = overviewText ? overviewText.substring(0, 100) + '...' : '暂无详细简介';
     const score = item.vote_average || item.rating || 'N/A';
     
     let posterSrc = item.tmdbDetails?.poster;
