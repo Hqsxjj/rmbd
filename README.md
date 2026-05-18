@@ -136,6 +136,7 @@ npm run deploy
 默认配置下，系统每天会在 **UTC 0:00**（北京时间早上 8:00）自动执行推送。
 如需修改，请调整 `wrangler.jsonc` 中的 `triggers.crons` 表达式。
 
+## 默认 pin 码 4321
 ---
 
 ## 📄 开源协议
