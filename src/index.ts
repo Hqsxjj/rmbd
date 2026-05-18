@@ -3,6 +3,7 @@
 // ==========================================
 
 interface TargetBank {
+  id: string;
   name: string;
   source: "tmdb" | "douban" | "maoyan";
   path?: string;
@@ -14,21 +15,21 @@ interface TargetBank {
 
 // 目标榜单配置 (直接访问 TMDB 和 豆瓣 API)
 const TARGET_BANKS: TargetBank[] = [
-  { name: "🎬 TMDB 流行趋势", source: "tmdb", path: "/trending/all/day", type: "mixed" },
-  { name: "🎥 TMDB 热门电影", source: "tmdb", path: "/movie/popular", type: "movie" },
-  { name: "🍿 TMDB 正在热映", source: "tmdb", path: "/movie/now_playing", type: "movie" },
-  { name: "📺 TMDB 热门剧集", source: "tmdb", path: "/tv/popular", type: "tv" },
-  { name: "🔥 豆瓣热门电影", source: "douban", type: "movie", tag: "热门" },
-  { name: "🆕 豆瓣最新电影", source: "douban", type: "movie", tag: "最新" },
-  { name: "🐱 猫眼热映电影", source: "maoyan", type: "movie" },
-  { name: "📡 豆瓣热门剧集", source: "douban", type: "tv", tag: "热门" },
-  { name: "✨ 豆瓣最新剧集", source: "douban", type: "tv", tag: "热门", sort: "time" },
-  { name: "📈 豆瓣实时热门剧集", source: "douban", type: "tv", collection_id: "tv_real_time_hotest" },
-  { name: "📺 豆瓣华语口碑剧集", source: "douban", type: "tv", collection_id: "tv_chinese_best_weekly" },
-  { name: "🌍 豆瓣全球口碑剧集", source: "douban", type: "tv", collection_id: "tv_global_best_weekly" },
-  { name: "🎤 豆瓣国内口碑综艺", source: "douban", type: "tv", collection_id: "show_chinese_best_weekly" },
-  { name: "🏅 豆瓣一周口碑电影", source: "douban", type: "movie", collection_id: "movie_weekly_best" },
-  { name: "🌟 豆瓣精选合集", source: "douban", type: "mixed", collection_id: "ECQM7YUOQ" }
+  { id: "tmdb_trending", name: "🎬 TMDB 流行趋势", source: "tmdb", path: "/trending/all/day", type: "mixed" },
+  { id: "tmdb_movie_popular", name: "🎥 TMDB 热门电影", source: "tmdb", path: "/movie/popular", type: "movie" },
+  { id: "tmdb_movie_now_playing", name: "🍿 TMDB 正在热映", source: "tmdb", path: "/movie/now_playing", type: "movie" },
+  { id: "tmdb_tv_popular", name: "📺 TMDB 热门剧集", source: "tmdb", path: "/tv/popular", type: "tv" },
+  { id: "douban_movie_hot", name: "🔥 豆瓣热门电影", source: "douban", type: "movie", tag: "热门" },
+  { id: "douban_movie_latest", name: "🆕 豆瓣最新电影", source: "douban", type: "movie", tag: "最新" },
+  { id: "maoyan_movie_hot", name: "🐱 猫眼热映电影", source: "maoyan", type: "movie" },
+  { id: "douban_tv_hot", name: "📡 豆瓣热门剧集", source: "douban", type: "tv", tag: "热门" },
+  { id: "douban_tv_latest", name: "✨ 豆瓣最新剧集", source: "douban", type: "tv", tag: "热门", sort: "time" },
+  { id: "douban_tv_realtime_hot", name: "📈 豆瓣实时热门剧集", source: "douban", type: "tv", collection_id: "tv_real_time_hotest" },
+  { id: "douban_tv_chinese_best", name: "📺 豆瓣华语口碑剧集", source: "douban", type: "tv", collection_id: "tv_chinese_best_weekly" },
+  { id: "douban_tv_global_best", name: "🌍 豆瓣全球口碑剧集", source: "douban", type: "tv", collection_id: "tv_global_best_weekly" },
+  { id: "douban_show_chinese_best", name: "🎤 豆瓣国内口碑综艺", source: "douban", type: "tv", collection_id: "show_chinese_best_weekly" },
+  { id: "douban_movie_weekly_best", name: "🏅 豆瓣一周口碑电影", source: "douban", type: "movie", collection_id: "movie_weekly_best" },
+  { id: "douban_mixed_ecqm", name: "🌟 豆瓣精选合集", source: "douban", type: "mixed", collection_id: "ECQM7YUOQ" }
 ];
 
 // ==========================================
@@ -399,7 +400,7 @@ async function sendSummaryToTelegram(env: Env, baseUrl: string): Promise<void> {
   // 2. 依次发送每个榜单，允许预览
   for (let index = 0; index < TARGET_BANKS.length; index++) {
     const bank = TARGET_BANKS[index];
-    const targetUrl = `${baseUrl}/view/${index}?t=${Date.now()}`;
+    const targetUrl = `${baseUrl}/view/${bank.id}?t=${Date.now()}`;
     const text = `👉 <b><a href="${targetUrl}">${bank.name}</a></b>`;
     
     try {
@@ -584,13 +585,13 @@ export default {
     // 路由：动态渲染指定榜单的网页
     if (request.method === "GET" && url.pathname.startsWith("/view/")) {
       const parts = url.pathname.split("/");
-      const bankIndex = parseInt(parts[2], 10);
+      const bankId = parts[2];
       
-      if (isNaN(bankIndex) || bankIndex < 0 || bankIndex >= TARGET_BANKS.length) {
+      const bank = TARGET_BANKS.find(b => b.id === bankId);
+      
+      if (!bank) {
         return new Response("❌ 找不到对应的榜单", { status: 404, headers: { "Content-Type": "text/plain;charset=UTF-8" } });
       }
-      
-      const bank = TARGET_BANKS[bankIndex];
       
       try {
         // 1. 抓取该榜单的 20 条数据
