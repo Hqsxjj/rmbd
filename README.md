@@ -37,7 +37,8 @@
 
 ## 🔑 环境变量配置
 
-所有配置项均直接写在 `wrangler.jsonc` 文件的 `vars` 中，极简配置，开箱即用。
+不要将秘钥或敏感配置直接写入 `wrangler.jsonc`。
+请改用 Cloudflare Dashboard 或 Wrangler Secrets 来管理环境变量。
 
 ### 必须配置的 3 个环境变量
 
@@ -47,7 +48,17 @@
 | `TG_BOT_TOKEN` | Telegram Bot Token | 通过 [@BotFather](https://t.me/BotFather) 创建 Bot 后获取 |
 | `TG_CHAT_ID` | Telegram Chat ID | 频道 ID（如 `@your_channel`）或用户/群组数字 ID |
 
-> ⚠️ **所有变量均为必填**，否则将无法获取数据和推送通知。
+### 推荐方式
+
+- Cloudflare Dashboard:
+  - 进入 Worker 的 `Variables` / `Settings` 页面
+  - 添加 `TMDB_API_KEY`, `TG_BOT_TOKEN`, `TG_CHAT_ID`
+- Wrangler CLI:
+  - 运行 `wrangler secret put TMDB_API_KEY`
+  - 运行 `wrangler secret put TG_BOT_TOKEN`
+  - 运行 `wrangler secret put TG_CHAT_ID`
+
+> ⚠️ **敏感配置请勿提交到仓库**。
 
 ---
 
@@ -69,14 +80,13 @@ npm install
 
 ### Step 2: 填写配置项
 
-打开项目根目录的 `wrangler.jsonc`，在 `vars` 中填入你的 3 个配置值：
+不要在 `wrangler.jsonc` 中写入明文秘钥。
+请在 Cloudflare Dashboard 的 Worker Variables 页面中添加以下环境变量，或使用 Wrangler CLI 的 secret 命令：
 
-```jsonc
-	"vars": {
-		"TMDB_API_KEY": "填你的Key",
-		"TG_BOT_TOKEN": "填你的Token",
-		"TG_CHAT_ID": "填你的ChatID"
-	}
+```bash
+wrangler secret put TMDB_API_KEY
+wrangler secret put TG_BOT_TOKEN
+wrangler secret put TG_CHAT_ID
 ```
 
 ### Step 3: 一键部署

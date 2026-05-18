@@ -32,6 +32,21 @@ const TARGET_BANKS: TargetBank[] = [
   { id: "douban_mixed_ecqm", name: "🌟 豆瓣精选合集", source: "douban", type: "mixed", collection_id: "ECQM7YUOQ" }
 ];
 
+let MANUAL_PUSH_PIN = "4321";
+
+function sanitizeMaoyanShowInfo(showInfo: string): { display: string; boxOffice?: string } {
+  let display = (showInfo || "").trim();
+  if (!display) return { display: "" };
+
+  const boxOfficeMatch = display.match(/票房[:：]?\s*([\d.,]+(?:万|亿)?元?)/);
+  const boxOffice = boxOfficeMatch ? boxOfficeMatch[1] : undefined;
+
+  display = display.replace(/今天\s*\d+家影院\s*/g, "今天 ");
+  display = display.replace(/\d+家影院\s*/g, "");
+  display = display.replace(/\s+/g, " ").trim();
+  return { display, boxOffice };
+}
+
 // ==========================================
 // 类型定义
 // ==========================================
@@ -64,6 +79,7 @@ interface BankItem {
   maoyan_actors?: string;
   maoyan_rt?: string;
   maoyan_showInfo?: string;
+  maoyan_boxOffice?: string;
 }
 
 // ==========================================
@@ -280,8 +296,10 @@ function buildHtml(bankName: string, items: BankItem[]): string {
 
     const actors = (item.tmdbDetails?.actors && item.tmdbDetails.actors !== '暂无演员信息') ? item.tmdbDetails.actors : (item.maoyan_actors || '暂无演员信息');
     const companies = item.tmdbDetails?.companies || '暂无';
-    
-    const showInfoHtml = item.maoyan_showInfo ? `<div style="color:#FF5722; font-size: 14px; font-weight: 600; margin-top: 8px;">🔥 ${item.maoyan_showInfo}</div>` : '';
+
+    const maoyanInfo = sanitizeMaoyanShowInfo(item.maoyan_showInfo || '');
+    const showInfoHtml = maoyanInfo.display ? `<div style="color:#FF5722; font-size: 14px; font-weight: 600; margin-top: 8px;">🔥 ${maoyanInfo.display}</div>` : '';
+    const boxOfficeHtml = maoyanInfo.boxOffice ? `<div style="color:#4CAF50; font-size: 14px; font-weight: 600; margin-top: 4px;">💰 今日票房：${maoyanInfo.boxOffice}</div>` : '';
 
     cardsHtml += `
       <div class="movie-card">
@@ -293,6 +311,7 @@ function buildHtml(bankName: string, items: BankItem[]): string {
           <div class="description">${desc}</div>
           <div class="cast">👥 ${actors}</div>
           ${showInfoHtml}
+          ${boxOfficeHtml}
         </div>
         <div class="rating-area">
           <div class="rating-label">综合评分</div>
@@ -555,7 +574,23 @@ td{border-bottom:1px solid #21262d;} .btn{display:inline-block;padding:12px 28px
   <a href="/status" class="btn" style="background:#21262d;border:1px solid #30363d">🔄 重新检测</a>
   ${allPass ? '<a href="/run" class="btn" style="background:#38a169">🚀 立即推送</a>' : ''}
   <a href="/test-tg" class="btn" style="background:#667eea">📨 发送 TG 测试消息</a>
-</div></div></body></html>`;
+</div>
+<div style="margin-top:30px;padding:26px;border-radius:20px;background:#111827;border:1px solid #212638;color:#c9d1d9;">
+  <h3 style="margin:0 0 12px;font-size:18px;">🔐 手动推送 PIN 解锁</h3>
+  <p style="margin:0 0 18px;color:#8b949e;line-height:1.6;">当前 PIN：<strong>${MANUAL_PUSH_PIN}</strong>（默认 4321）。请在下方输入 PIN 并提交，支持在此处修改新 PIN。</p>
+  <form method="POST" action="/run" style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;">
+    <input name="pin" placeholder="输入 PIN" required style="flex:1 1 220px;padding:12px 14px;border-radius:12px;border:1px solid #30363d;background:#0f172a;color:#e2e8f0;outline:none;" />
+    <input name="new_pin" placeholder="修改 PIN（可选）" style="flex:1 1 220px;padding:12px 14px;border-radius:12px;border:1px solid #30363d;background:#0f172a;color:#e2e8f0;outline:none;" />
+    <button type="submit" class="btn" style="background:#2563eb;border:none;min-width:150px;">🔐 解锁并推送</button>
+  </form>
+</div>
+</div></body></html>`;
+}
+
+function buildRunResultHtml(message: string, success = true): string {
+  return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta http-equiv="refresh" content="3;url=/status">
+    <style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#0f1117;color:#e1e4e8;margin:0;}</style></head>
+    <body><div style="text-align:center;"><h2>${success ? '✅' : '❌'} ${message}</h2><p>3 秒后返回...</p></div></body></html>`;
 }
 
 // 发送 TG 测试文本消息
@@ -645,12 +680,32 @@ export default {
     }
 
     // 路由：手动触发推送任务
-    if (request.method === "GET" && url.pathname === "/run") {
-      ctx.waitUntil(runBotTask(env, request.url).catch(console.error));
-      return new Response(`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="3;url=/status">
-        <style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#0f1117;color:#e1e4e8;margin:0;}</style></head>
-        <body><div style="text-align:center"><h2>🚀 文本汇总链接已推送</h2><p>请稍后查看 Telegram</p></div></body></html>`, 
-        { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+    if (url.pathname === "/run") {
+      if (request.method === "GET") {
+        return Response.redirect(new URL("/status", request.url).toString(), 302);
+      }
+
+      if (request.method === "POST") {
+        const formData = await request.formData();
+        const pin = (formData.get("pin") || "").toString().trim();
+        const newPin = (formData.get("new_pin") || "").toString().trim();
+
+        if (!pin) {
+          return new Response(buildRunResultHtml("请输入 PIN", false), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+        }
+
+        if (pin !== MANUAL_PUSH_PIN) {
+          return new Response(buildRunResultHtml("PIN 错误，无法触发推送", false), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+        }
+
+        if (newPin) {
+          MANUAL_PUSH_PIN = newPin;
+        }
+
+        const message = newPin ? `🚀 推送已触发；PIN 已更新为 ${newPin}` : "🚀 推送已触发";
+        ctx.waitUntil(runBotTask(env, request.url).catch(console.error));
+        return new Response(buildRunResultHtml(message, true), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      }
     }
 
     return Response.redirect(new URL("/status", request.url).toString(), 302);
