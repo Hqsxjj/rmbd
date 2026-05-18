@@ -8,6 +8,7 @@ interface TargetBank {
   path?: string;
   type: "movie" | "tv" | "mixed";
   tag?: string;
+  sort?: "recommend" | "time" | "rank";
   collection_id?: string;
 }
 
@@ -20,7 +21,7 @@ const TARGET_BANKS: TargetBank[] = [
   { name: "🔥 豆瓣热门电影", source: "douban", type: "movie", tag: "热门" },
   { name: "🆕 豆瓣最新电影", source: "douban", type: "movie", tag: "最新" },
   { name: "📡 豆瓣热门剧集", source: "douban", type: "tv", tag: "热门" },
-  { name: "✨ 豆瓣最新剧集", source: "douban", type: "tv", tag: "最新" },
+  { name: "✨ 豆瓣最新剧集", source: "douban", type: "tv", tag: "热门", sort: "time" },
   { name: "📈 豆瓣实时热门剧集", source: "douban", type: "tv", collection_id: "tv_real_time_hotest" },
   { name: "📺 豆瓣华语口碑剧集", source: "douban", type: "tv", collection_id: "tv_chinese_best_weekly" },
   { name: "🌍 豆瓣全球口碑剧集", source: "douban", type: "tv", collection_id: "tv_global_best_weekly" },
@@ -144,7 +145,8 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
     if (bank.collection_id) {
       url = `https://m.douban.com/rexxar/api/v2/subject_collection/${bank.collection_id}/items?start=0&count=20`;
     } else if (bank.tag) {
-      url = `https://movie.douban.com/j/search_subjects?type=${bank.type}&tag=${encodeURIComponent(bank.tag)}&sort=recommend&page_limit=20&page_start=0`;
+      const sortParam = bank.sort || "recommend";
+      url = `https://movie.douban.com/j/search_subjects?type=${bank.type}&tag=${encodeURIComponent(bank.tag)}&sort=${sortParam}&page_limit=20&page_start=0`;
     }
 
     const res = await fetch(url, {
@@ -222,7 +224,7 @@ function buildHtml(bankName: string, items: BankItem[]): string {
     
     let posterSrc = item.tmdbDetails?.poster;
     if (!posterSrc && item.douban_poster) {
-      posterSrc = `https://images.weserv.nl/?url=${encodeURIComponent(item.douban_poster)}`;
+      posterSrc = `https://wsrv.nl/?url=${encodeURIComponent(item.douban_poster)}`;
     }
     if (!posterSrc) {
       posterSrc = 'https://placehold.co/140x200/cccccc/ffffff?text=No+Poster';
@@ -255,7 +257,7 @@ function buildHtml(bankName: string, items: BankItem[]): string {
     if (topItem.tmdbDetails?.poster) {
       ogImage = topItem.tmdbDetails.poster;
     } else if (topItem.douban_poster) {
-      ogImage = `https://images.weserv.nl/?url=${encodeURIComponent(topItem.douban_poster)}`;
+      ogImage = `https://wsrv.nl/?url=${encodeURIComponent(topItem.douban_poster)}`;
     }
   }
   const top3Names = items.slice(0, 3).map(i => i.title || i.name).filter(Boolean).join(' / ');
