@@ -17,14 +17,7 @@
 	},
 
 	// ==========================================
-	// 环境变量 — 在这里直接填入你的配置
+	// 环境变量由 Cloudflare Workers 控制台或 Wrangler Secrets 管理
 	// ==========================================
-	"vars": {
-		// TMDB API 密钥 (从 themoviedb.org 获取)
-		"TMDB_API_KEY": "6cb0121723c7904c862317c62665cbaf",
-		// Telegram Bot Token (从 @BotFather 获取)
-		"TG_BOT_TOKEN": "8875150371:AAFcu1QJq3t41nTD7YyE4dczoXJwn1RBIGM",
-		// Telegram Chat ID (频道/群组/用户 ID)
-		"TG_CHAT_ID": "-1002296819403"
-	}
 }
+

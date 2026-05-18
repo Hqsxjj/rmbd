@@ -60,13 +60,28 @@
 
 ## 🔑 环境变量配置
 
-所有配置项均直接写在 `wrangler.jsonc` 文件的 `vars` 中。
+不要将秘钥或敏感配置直接写入 `wrangler.jsonc`。
+请改用 Cloudflare Dashboard 或 Wrangler Secrets 来管理环境变量。
+
+### 必须配置的 3 个环境变量
 
 | 变量名 | 说明 | 获取方式 |
 |:---|:---|:---|
 | `TMDB_API_KEY` | TMDB API 密钥 | 注册 [TheMovieDB](https://www.themoviedb.org/settings/api) 获取 |
 | `TG_BOT_TOKEN` | Telegram Bot Token | 通过 [@BotFather](https://t.me/BotFather) 创建 Bot 获取 |
 | `TG_CHAT_ID` | Telegram Chat ID | 频道 ID（如 `@your_channel`）或数字 ID |
+
+### 推荐方式
+
+- **Cloudflare Dashboard**:
+  - 进入 Worker 的 `Settings` -> `Variables` 页面。
+  - 添加 `TMDB_API_KEY`, `TG_BOT_TOKEN`, `TG_CHAT_ID`。
+- **Wrangler CLI**:
+  - 运行 `npx wrangler secret put TMDB_API_KEY`
+  - 运行 `npx wrangler secret put TG_BOT_TOKEN`
+  - 运行 `npx wrangler secret put TG_CHAT_ID`
+
+> ⚠️ **敏感配置请勿提交到公开仓库**。
 
 ---
 
@@ -88,14 +103,13 @@ npm install
 
 ### 步骤 2：填写配置
 
-修改 `wrangler.jsonc`，在 `vars` 中填入你的配置：
+不要在 `wrangler.jsonc` 中写入明文秘钥。
+请在 Cloudflare Dashboard 的 Worker Variables 页面中添加以下环境变量，或使用 Wrangler CLI 的 secret 命令：
 
-```jsonc
-"vars": {
-  "TMDB_API_KEY": "你的_TMDB_API_KEY",
-  "TG_BOT_TOKEN": "你的_TELEGRAM_BOT_TOKEN",
-  "TG_CHAT_ID": "你的_TELEGRAM_CHAT_ID"
-}
+```bash
+npx wrangler secret put TMDB_API_KEY
+npx wrangler secret put TG_BOT_TOKEN
+npx wrangler secret put TG_CHAT_ID
 ```
 
 ### 步骤 3：一键部署
