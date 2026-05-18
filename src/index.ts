@@ -346,7 +346,7 @@ async function sendSummaryToTelegram(env: Env, baseUrl: string): Promise<void> {
   // 2. 依次发送每个榜单，允许预览
   for (let index = 0; index < TARGET_BANKS.length; index++) {
     const bank = TARGET_BANKS[index];
-    const text = `👉 <b>${bank.name}</b>\n<a href="${baseUrl}/view/${index}">🔗 点击此处查看网页版榜单</a>`;
+    const text = `👉 <b><a href="${baseUrl}/view/${index}">${bank.name}</a></b>`;
     
     try {
       const res = await fetch(tgUrl, {
