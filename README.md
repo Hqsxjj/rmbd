@@ -1,4 +1,4 @@
-# 🎬 RMBD — 影视榜单动态网页与 Telegram 推送机器人
+# 🎬 影视榜单动态 Telegram 推送机器人
 
 基于 **Cloudflare Worker** 的轻量级、无服务器（Serverless）影视榜单系统。
 
