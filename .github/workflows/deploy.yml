@@ -1,0 +1,40 @@
+name: Deploy to Cloudflare Workers
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 同步所有 Worker Secrets（值来自 GitHub Secrets，每次部署自动更新）
+      - name: Set Worker Secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          echo "${{ secrets.TMDB_API_KEY }}"       | npx wrangler secret put TMDB_API_KEY
+          echo "${{ secrets.TG_BOT_TOKEN }}"       | npx wrangler secret put TG_BOT_TOKEN
+          echo "${{ secrets.TG_CHAT_ID }}"         | npx wrangler secret put TG_CHAT_ID
+          echo "${{ secrets.WECOM_WEBHOOK_URL }}"  | npx wrangler secret put WECOM_WEBHOOK_URL
+
+      # 部署代码
+      - name: Deploy Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler deploy
