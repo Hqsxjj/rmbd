@@ -624,57 +624,128 @@ function buildStatusHtml(results: CheckResult[]): string {
   const passCount = results.filter(r => r.ok).length;
   const totalCount = results.length;
   const allPass = passCount === totalCount;
-  const rows = results.map(r => `
-      <tr>
-        <td style="padding:14px 24px;font-weight:600">${r.icon} ${r.name}</td>
-        <td style="padding:14px 24px">${r.ok ? '<span style="color:#68d391">✅ 正常</span>' : '<span style="color:#fc8181">❌ 异常</span>'}</td>
-        <td style="padding:14px 24px;color:#8b949e;font-size:13px">${r.detail}</td>
-        <td style="padding:14px 24px;color:#8b949e;text-align:right">${r.latency > 0 ? r.latency + 'ms' : '-'}</td>
-      </tr>`).join('');
+
+  const cards = results.map(r => `
+    <div class="card">
+      <div class="card-left">
+        <span class="card-icon">${r.icon}</span>
+        <div>
+          <div class="card-name">${r.name}</div>
+          <div class="card-detail">${r.detail}</div>
+        </div>
+      </div>
+      <div class="card-right">
+        ${r.latency > 0 ? `<span class="latency">${r.latency}ms</span>` : ''}
+        <span class="dot ${r.ok ? 'dot-ok' : 'dot-err'}"></span>
+      </div>
+    </div>`).join('');
+
+  const badgeColor = allPass ? '#34d399' : '#f87171';
+  const badgeBg = allPass ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.12)';
+  const badgeBorder = allPass ? 'rgba(52,211,153,0.3)' : 'rgba(248,113,113,0.3)';
 
   return `<!DOCTYPE html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>RMBD 系统诊断</title>
-<style>body{font-family:system-ui,sans-serif;background:#0f1117;color:#e1e4e8;padding:40px 20px;} .container{max-width:800px;margin:0 auto;}
-table{width:100%;border-collapse:collapse;background:#161b22;border-radius:12px;overflow:hidden;}
-th{text-align:left;padding:12px 24px;color:#8b949e;border-bottom:1px solid #30363d;}
-td{border-bottom:1px solid #21262d;} .btn{display:inline-block;padding:12px 28px;border-radius:8px;font-weight:600;text-decoration:none;color:white;margin:0 6px;}
-</style></head>
-<body><div class="container">
-<div style="text-align:center;margin-bottom:40px"><h2>🎬 RMBD 系统诊断</h2><p style="color:#8b949e">影视榜单推送机器人 · 连通性检测</p></div>
-<table><thead><tr><th>服务</th><th>状态</th><th>详情</th><th style="text-align:right">延迟</th></tr></thead><tbody>${rows}</tbody></table>
-<div style="text-align:center;margin-top:40px">
-  <a href="/status" class="btn" style="background:#21262d;border:1px solid #30363d">🔄 重新检测</a>
-  ${allPass ? '<a href="/run" class="btn" style="background:#38a169">🚀 立即推送</a>' : ''}
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RMBD 控制台</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:#070a14;color:#e2e8f0;min-height:100vh;padding:32px 16px}
+.wrap{max-width:660px;margin:0 auto}
+.header{text-align:center;margin-bottom:36px}
+.header h1{font-size:clamp(22px,5vw,34px);font-weight:800;background:linear-gradient(135deg,#a78bfa,#60a5fa,#34d399);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.header p{color:#64748b;font-size:14px;margin-top:8px}
+.badge{display:inline-flex;align-items:center;gap:6px;background:${badgeBg};border:1px solid ${badgeBorder};color:${badgeColor};border-radius:999px;padding:4px 14px;font-size:13px;font-weight:600;margin-top:12px}
+.badge-dot{width:7px;height:7px;border-radius:50%;background:currentColor;animation:pulse 1.5s infinite}
+.section-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#334155;margin-bottom:10px;padding-left:2px}
+.cards{display:flex;flex-direction:column;gap:8px;margin-bottom:28px}
+.card{display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:14px 18px;transition:background .2s}
+.card:hover{background:rgba(255,255,255,0.07)}
+.card-left{display:flex;align-items:center;gap:12px}
+.card-icon{font-size:20px;width:28px;text-align:center}
+.card-name{font-weight:600;font-size:14px;color:#cbd5e1}
+.card-detail{font-size:12px;color:#475569;margin-top:2px}
+.card-right{display:flex;align-items:center;gap:10px}
+.latency{font-size:12px;color:#334155;font-variant-numeric:tabular-nums}
+.dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.dot-ok{background:#34d399;box-shadow:0 0 8px rgba(52,211,153,0.6);animation:pulse 2s infinite}
+.dot-err{background:#f87171;box-shadow:0 0 8px rgba(248,113,113,0.5)}
+.panel{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:20px;padding:24px;margin-bottom:16px}
+.panel-title{font-size:14px;font-weight:700;color:#64748b;margin-bottom:18px;display:flex;align-items:center;gap:6px}
+.pin-wrap{position:relative;margin-bottom:12px}
+.pin-wrap input{width:100%;background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:13px 16px;color:#e2e8f0;font-size:16px;outline:none;transition:border-color .2s,box-shadow .2s;font-family:monospace;letter-spacing:3px}
+.pin-wrap input::placeholder{letter-spacing:0;font-family:inherit;color:#334155;font-size:14px}
+.pin-wrap input:focus{border-color:rgba(167,139,250,0.5);box-shadow:0 0 0 3px rgba(167,139,250,0.1)}
+.toggle-newpin{font-size:12px;color:#334155;cursor:pointer;margin-bottom:10px;text-align:right;transition:color .2s;user-select:none}
+.toggle-newpin:hover{color:#64748b}
+.newpin-wrap{display:none;margin-bottom:12px}
+.newpin-wrap.show{display:block}
+.newpin-wrap input{width:100%;background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:13px 16px;color:#e2e8f0;font-size:15px;outline:none;font-family:monospace;letter-spacing:2px}
+.newpin-wrap input::placeholder{letter-spacing:0;font-family:inherit;color:#334155;font-size:14px}
+.btn-row{display:grid;gap:10px;margin-bottom:10px}
+.btn-row.grid3{grid-template-columns:1fr 1fr 1fr}
+button.btn,a.btn{border:none;border-radius:12px;padding:13px 8px;font-size:13px;font-weight:700;cursor:pointer;transition:all .2s;color:white;display:flex;align-items:center;justify-content:center;gap:5px;text-decoration:none;line-height:1}
+button.btn:hover,a.btn:hover{transform:translateY(-2px);filter:brightness(1.15)}
+button.btn:active,a.btn:active{transform:scale(0.97)}
+.btn-push{background:linear-gradient(135deg,#6d28d9,#2563eb)}
+.btn-tg{background:linear-gradient(135deg,#1d4ed8,#0284c7)}
+.btn-wecom{background:linear-gradient(135deg,#065f46,#059669)}
+.btn-reload{background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1)!important;color:#64748b}
+.btn-reload:hover{background:rgba(255,255,255,0.1)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+@media(max-width:480px){.btn-row.grid3{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <h1>🎬 RMBD 控制台</h1>
+    <p>影视榜单推送机器人 · 系统诊断与控制</p>
+    <div class="badge"><span class="badge-dot"></span>${passCount} / ${totalCount} 服务正常</div>
+  </div>
+
+  <div class="section-label">服务状态</div>
+  <div class="cards">${cards}</div>
+
+  <div class="section-label">操作中心</div>
+  <div class="panel">
+    <div class="panel-title">🔐 PIN 验证</div>
+    <div class="pin-wrap">
+      <input id="pinVal" type="password" placeholder="输入 PIN 码以执行操作" autocomplete="off" />
+    </div>
+    <div class="toggle-newpin" onclick="document.getElementById('npw').classList.toggle('show');this.textContent=document.getElementById('npw').classList.contains('show')?'− 取消修改 PIN':'＋ 同时修改 PIN 码'">＋ 同时修改 PIN 码</div>
+    <div class="newpin-wrap" id="npw">
+      <input id="npVal" type="password" placeholder="新 PIN 码（留空则不修改）" autocomplete="off" />
+    </div>
+
+    <div class="btn-row" style="grid-template-columns:1fr;margin-bottom:10px">
+      <button class="btn btn-push" onclick="doPush()">🚀 推送全部 ${TARGET_BANKS.length} 个榜单</button>
+    </div>
+    <div class="btn-row grid3">
+      <button class="btn btn-tg"     onclick="doTest('/test-tg')">📨 TG 测试</button>
+      <button class="btn btn-wecom"  onclick="doTest('/test-wecom')">💼 企微测试</button>
+      <a     class="btn btn-reload"  href="/status">🔄 重新检测</a>
+    </div>
+  </div>
 </div>
-<div style="margin-top:20px;padding:20px;border-radius:16px;background:#111827;border:1px solid #212638;color:#c9d1d9;">
-  <h3 style="margin:0 0 10px;font-size:16px;">🧪 发送测试消息（需要 PIN）</h3>
-  <form method="GET" action="/test-tg" style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:10px;">
-    <input name="pin" placeholder="输入 PIN" required type="password" style="flex:1 1 160px;padding:10px 12px;border-radius:10px;border:1px solid #30363d;background:#0f172a;color:#e2e8f0;outline:none;" />
-    <button type="submit" class="btn" style="background:#667eea;border:none;">📨 TG 测试</button>
-  </form>
-  <form method="GET" action="/test-wecom" style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-    <input name="pin" placeholder="输入 PIN" required type="password" style="flex:1 1 160px;padding:10px 12px;border-radius:10px;border:1px solid #30363d;background:#0f172a;color:#e2e8f0;outline:none;" />
-    <button type="submit" class="btn" style="background:#07c160;border:none;">💼 企业微信测试</button>
-  </form>
-</div>
-<div style="margin-top:30px;padding:26px;border-radius:20px;background:#111827;border:1px solid #212638;color:#c9d1d9;">
-  <h3 style="margin:0 0 12px;font-size:18px;">🔐 手动推送 PIN 解锁</h3>
-  <p style="margin:0 0 18px;color:#8b949e;line-height:1.6;">请在下方输入 PIN 并提交，支持在此处修改新 PIN。</p>
-  <form method="POST" action="/run" style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;">
-    <input name="pin" placeholder="输入 PIN" required style="flex:1 1 220px;padding:12px 14px;border-radius:12px;border:1px solid #30363d;background:#0f172a;color:#e2e8f0;outline:none;" />
-    <input name="new_pin" placeholder="修改 PIN（可选）" style="flex:1 1 220px;padding:12px 14px;border-radius:12px;border:1px solid #30363d;background:#0f172a;color:#e2e8f0;outline:none;" />
-    <button type="submit" class="btn" style="background:#2563eb;border:none;min-width:150px;">🔐 解锁并推送</button>
-  </form>
-</div>
-</div></body></html>`;
+<script>
+function pin(){const v=document.getElementById('pinVal').value.trim();if(!v){document.getElementById('pinVal').style.borderColor='rgba(248,113,113,0.6)';setTimeout(()=>document.getElementById('pinVal').style.borderColor='',1500);return null;}return v;}
+function doPush(){const p=pin();if(!p)return;const np=document.getElementById('npVal')?.value.trim()||'';const f=document.createElement('form');f.method='POST';f.action='/run';const a=document.createElement('input');a.name='pin';a.value=p;f.appendChild(a);if(np){const b=document.createElement('input');b.name='new_pin';b.value=np;f.appendChild(b);}document.body.appendChild(f);f.submit();}
+function doTest(path){const p=pin();if(!p)return;location.href=path+'?pin='+encodeURIComponent(p);}
+</script>
+</body>
+</html>`;
 }
 
 function buildRunResultHtml(message: string, success = true): string {
+  const color = success ? '#34d399' : '#f87171';
+  const glow  = success ? 'rgba(52,211,153,0.35)' : 'rgba(248,113,113,0.35)';
   return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta http-equiv="refresh" content="3;url=/status">
-    <style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#0f1117;color:#e1e4e8;margin:0;}</style></head>
-    <body><div style="text-align:center;"><h2>${success ? '✅' : '❌'} ${message}</h2><p>3 秒后返回...</p></div></body></html>`;
+<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:"PingFang SC",system-ui,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#070a14;color:#e2e8f0}.box{text-align:center;padding:40px 32px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:24px;max-width:360px;width:90%}.ico{font-size:54px;margin-bottom:16px;filter:drop-shadow(0 0 18px ${glow})}.ttl{font-size:20px;font-weight:700;color:${color};margin-bottom:8px}.sub{color:#475569;font-size:14px}.bar{height:3px;border-radius:2px;margin-top:20px;background:linear-gradient(90deg,${color},transparent);animation:sh 3s linear forwards}@keyframes sh{from{width:100%}to{width:0}}</style>
+</head><body><div class="box"><div class="ico">${success ? '✅' : '❌'}</div><div class="ttl">${message}</div><div class="sub">3 秒后返回控制台...</div><div class="bar"></div></div></body></html>`;
 }
+
 
 // 发送 TG 测试文本消息
 async function sendTestTelegramMessage(env: Env): Promise<{ ok: boolean; detail: string }> {
