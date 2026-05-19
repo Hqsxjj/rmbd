@@ -646,8 +646,17 @@ td{border-bottom:1px solid #21262d;} .btn{display:inline-block;padding:12px 28px
 <div style="text-align:center;margin-top:40px">
   <a href="/status" class="btn" style="background:#21262d;border:1px solid #30363d">🔄 重新检测</a>
   ${allPass ? '<a href="/run" class="btn" style="background:#38a169">🚀 立即推送</a>' : ''}
-  <a href="/test-tg" class="btn" style="background:#667eea">📨 发送 TG 测试消息</a>
-  <a href="/test-wecom" class="btn" style="background:#07c160">💼 发送企业微信测试消息</a>
+</div>
+<div style="margin-top:20px;padding:20px;border-radius:16px;background:#111827;border:1px solid #212638;color:#c9d1d9;">
+  <h3 style="margin:0 0 10px;font-size:16px;">🧪 发送测试消息（需要 PIN）</h3>
+  <form method="GET" action="/test-tg" style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:10px;">
+    <input name="pin" placeholder="输入 PIN" required type="password" style="flex:1 1 160px;padding:10px 12px;border-radius:10px;border:1px solid #30363d;background:#0f172a;color:#e2e8f0;outline:none;" />
+    <button type="submit" class="btn" style="background:#667eea;border:none;">📨 TG 测试</button>
+  </form>
+  <form method="GET" action="/test-wecom" style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+    <input name="pin" placeholder="输入 PIN" required type="password" style="flex:1 1 160px;padding:10px 12px;border-radius:10px;border:1px solid #30363d;background:#0f172a;color:#e2e8f0;outline:none;" />
+    <button type="submit" class="btn" style="background:#07c160;border:none;">💼 企业微信测试</button>
+  </form>
 </div>
 <div style="margin-top:30px;padding:26px;border-radius:20px;background:#111827;border:1px solid #212638;color:#c9d1d9;">
   <h3 style="margin:0 0 12px;font-size:18px;">🔐 手动推送 PIN 解锁</h3>
@@ -761,17 +770,25 @@ export default {
       return new Response(buildStatusHtml(results), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
     }
 
-    // 路由：发送 TG 测试消息
+    // 路由：发送 TG 测试消息（需要 ?pin=xxx 验证）
     if (request.method === "GET" && url.pathname === "/test-tg") {
+      const pin = url.searchParams.get("pin") || "";
+      if (!pin || pin !== MANUAL_PUSH_PIN) {
+        return new Response(buildRunResultHtml("PIN 错误，拒绝访问", false), { status: 403, headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      }
       const result = await sendTestTelegramMessage(env);
       return new Response(`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="3;url=/status">
         <style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#0f1117;color:#e1e4e8;margin:0;}</style></head>
-        <body><div style="text-align:center"><h2>${result.ok ? '✅' : '❌'} ${result.detail}</h2><p>3 秒后返回...</p></div></body></html>`, 
+        <body><div style="text-align:center"><h2>${result.ok ? '✅' : '❌'} ${result.detail}</h2><p>3 秒后返回...</p></div></body></html>`,
         { headers: { "Content-Type": "text/html;charset=UTF-8" } });
     }
 
-    // 路由：发送企业微信测试消息
+    // 路由：发送企业微信测试消息（需要 ?pin=xxx 验证）
     if (request.method === "GET" && url.pathname === "/test-wecom") {
+      const pin = url.searchParams.get("pin") || "";
+      if (!pin || pin !== MANUAL_PUSH_PIN) {
+        return new Response(buildRunResultHtml("PIN 错误，拒绝访问", false), { status: 403, headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      }
       const result = await sendTestWecomMessage(env);
       return new Response(`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="3;url=/status">
         <style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#0f1117;color:#e1e4e8;margin:0;}</style></head>
