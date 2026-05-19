@@ -55,6 +55,7 @@ interface Env {
   TMDB_API_KEY: string;
   TG_BOT_TOKEN: string;
   TG_CHAT_ID: string;
+  WECOM_WEBHOOK_URL: string;
 }
 
 interface TmdbDetails {
@@ -446,6 +447,49 @@ async function sendSummaryToTelegram(env: Env, baseUrl: string): Promise<void> {
   }
 }
 
+// ==========================================
+// 企业微信 Webhook 推送
+// ==========================================
+
+async function sendSummaryToWecom(env: Env, baseUrl: string): Promise<void> {
+  if (!env.WECOM_WEBHOOK_URL) {
+    console.log("未配置 WECOM_WEBHOOK_URL，跳过企业微信推送");
+    return;
+  }
+
+  const now = new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' });
+
+  // 1. 发送开场消息
+  const introContent = `## 🎬 RMBD 每日影视榜单已更新 (${now})\n正在为您推送 **${TARGET_BANKS.length}** 个精选榜单，请查收 👇`;
+  try {
+    await fetch(env.WECOM_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ msgtype: "markdown", markdown: { content: introContent } })
+    });
+  } catch (err) {
+    console.error("发送企业微信开场消息异常:", err);
+  }
+
+  // 2. 依次发送每个榜单
+  for (const bank of TARGET_BANKS) {
+    const targetUrl = `${baseUrl}/view/${bank.id}?t=${Date.now()}`;
+    const content = `**${bank.name}**\n> [📋 查看完整榜单](${targetUrl})`;
+    try {
+      const res = await fetch(env.WECOM_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ msgtype: "markdown", markdown: { content } })
+      });
+      if (!res.ok) console.error(`企业微信推送失败: ${bank.name}`, await res.text());
+    } catch (err) {
+      console.error(`企业微信推送异常: ${bank.name}`, err);
+    }
+    // 企业微信限流：20条/分钟，间隔 3s 保险
+    await new Promise(r => setTimeout(r, 3000));
+  }
+}
+
 async function runBotTask(env: Env, requestUrl: string): Promise<void> {
   console.log("启动定时汇总任务...");
 
@@ -457,8 +501,11 @@ async function runBotTask(env: Env, requestUrl: string): Promise<void> {
   const urlObj = new URL(requestUrl);
   const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
 
-  // 发送只包含链接的文本消息到 TG
-  await sendSummaryToTelegram(env, baseUrl);
+  // 并发推送 Telegram 和企业微信
+  await Promise.all([
+    sendSummaryToTelegram(env, baseUrl),
+    sendSummaryToWecom(env, baseUrl)
+  ]);
 }
 
 // ==========================================
@@ -478,6 +525,7 @@ function checkEnvVars(env: Env): CheckResult {
     { key: "TMDB_API_KEY", label: "TMDB API Key" },
     { key: "TG_BOT_TOKEN", label: "TG Bot Token" },
     { key: "TG_CHAT_ID", label: "TG Chat ID" },
+    { key: "WECOM_WEBHOOK_URL", label: "WeCom Webhook URL" },
   ];
 
   const missing: string[] = [];
@@ -547,6 +595,31 @@ async function checkDouban(): Promise<CheckResult> {
   }
 }
 
+async function checkWecom(env: Env): Promise<CheckResult> {
+  if (!env.WECOM_WEBHOOK_URL) return { name: "企业微信 Webhook", icon: "💼", ok: false, detail: "未配置", latency: 0 };
+  const start = Date.now();
+  try {
+    // 发送一个空 body 触发格式错误响应，只要 HTTP 通则 URL 可达
+    const res = await fetch(env.WECOM_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ msgtype: "text", text: { content: "" } })
+    });
+    const json: any = await res.json();
+    // errcode=0 表示成功；其他 errcode 说明 URL 可达但参数有误
+    if (json.errcode === 0) {
+      return { name: "企业微信 Webhook", icon: "💼", ok: true, detail: "连接正常", latency: Date.now() - start };
+    }
+    // content 为空时企业微信返回 errcode=93000，URL 依然可达
+    if (res.ok) {
+      return { name: "企业微信 Webhook", icon: "💼", ok: true, detail: `URL 可达 (errcode=${json.errcode})`, latency: Date.now() - start };
+    }
+    return { name: "企业微信 Webhook", icon: "💼", ok: false, detail: `HTTP ${res.status}`, latency: Date.now() - start };
+  } catch (e: any) {
+    return { name: "企业微信 Webhook", icon: "💼", ok: false, detail: `连接失败: ${e.message}`, latency: Date.now() - start };
+  }
+}
+
 function buildStatusHtml(results: CheckResult[]): string {
   const passCount = results.filter(r => r.ok).length;
   const totalCount = results.length;
@@ -574,6 +647,7 @@ td{border-bottom:1px solid #21262d;} .btn{display:inline-block;padding:12px 28px
   <a href="/status" class="btn" style="background:#21262d;border:1px solid #30363d">🔄 重新检测</a>
   ${allPass ? '<a href="/run" class="btn" style="background:#38a169">🚀 立即推送</a>' : ''}
   <a href="/test-tg" class="btn" style="background:#667eea">📨 发送 TG 测试消息</a>
+  <a href="/test-wecom" class="btn" style="background:#07c160">💼 发送企业微信测试消息</a>
 </div>
 <div style="margin-top:30px;padding:26px;border-radius:20px;background:#111827;border:1px solid #212638;color:#c9d1d9;">
   <h3 style="margin:0 0 12px;font-size:18px;">🔐 手动推送 PIN 解锁</h3>
@@ -603,6 +677,23 @@ async function sendTestTelegramMessage(env: Env): Promise<{ ok: boolean; detail:
     });
     const json: any = await res.json();
     return json.ok ? { ok: true, detail: "发送成功" } : { ok: false, detail: json.description };
+  } catch (e: any) { return { ok: false, detail: e.message }; }
+}
+
+// 发送企业微信测试消息
+async function sendTestWecomMessage(env: Env): Promise<{ ok: boolean; detail: string }> {
+  if (!env.WECOM_WEBHOOK_URL) return { ok: false, detail: "未配置 WECOM_WEBHOOK_URL" };
+  try {
+    const res = await fetch(env.WECOM_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        msgtype: "markdown",
+        markdown: { content: `## ✅ RMBD 企业微信测试成功\n> 💼 消息推送通道畅通！` }
+      })
+    });
+    const json: any = await res.json();
+    return json.errcode === 0 ? { ok: true, detail: "发送成功" } : { ok: false, detail: `errcode=${json.errcode}: ${json.errmsg}` };
   } catch (e: any) { return { ok: false, detail: e.message }; }
 }
 
@@ -665,7 +756,7 @@ export default {
     // 路由：系统诊断页面
     if (request.method === "GET" && url.pathname === "/status") {
       const results = await Promise.all([
-        Promise.resolve(checkEnvVars(env)), checkTelegram(env), checkTelegramChat(env), checkTmdb(env), checkDouban()
+        Promise.resolve(checkEnvVars(env)), checkTelegram(env), checkTelegramChat(env), checkTmdb(env), checkDouban(), checkWecom(env)
       ]);
       return new Response(buildStatusHtml(results), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
     }
@@ -676,6 +767,15 @@ export default {
       return new Response(`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="3;url=/status">
         <style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#0f1117;color:#e1e4e8;margin:0;}</style></head>
         <body><div style="text-align:center"><h2>${result.ok ? '✅' : '❌'} ${result.detail}</h2><p>3 秒后返回...</p></div></body></html>`, 
+        { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+    }
+
+    // 路由：发送企业微信测试消息
+    if (request.method === "GET" && url.pathname === "/test-wecom") {
+      const result = await sendTestWecomMessage(env);
+      return new Response(`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="3;url=/status">
+        <style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#0f1117;color:#e1e4e8;margin:0;}</style></head>
+        <body><div style="text-align:center"><h2>${result.ok ? '✅' : '❌'} ${result.detail}</h2><p>3 秒后返回...</p></div></body></html>`,
         { headers: { "Content-Type": "text/html;charset=UTF-8" } });
     }
 
