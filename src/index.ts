@@ -335,14 +335,8 @@ function buildHtml(bankName: string, items: BankItem[]): string {
       if (genres) metaText += ` / ${genres}`;
     }
 
-    const overviewText = item.tmdbDetails?.overview || item.overview || '';
-    const desc = overviewText ? overviewText.substring(0, 100) + '...' : '暂无详细简介';
-    const score = item.vote_average || item.rating || 'N/A';
-    
-    let posterSrc = item.tmdbDetails?.poster;
-    if (!posterSrc && item.douban_poster) {
-      posterSrc = item.douban_poster;
-    }
+    // 优先使用源平台自带的海报（100% 准确），只有在源平台没有海报时才回退使用 TMDB 模糊匹配的海报，防止匹配到错误图
+    let posterSrc = item.douban_poster || item.tmdbDetails?.poster;
     if (posterSrc) {
       if (posterSrc.startsWith("//")) {
         posterSrc = "https:" + posterSrc;
@@ -353,6 +347,11 @@ function buildHtml(bankName: string, items: BankItem[]): string {
     } else {
       posterSrc = 'https://placehold.co/140x200/cccccc/ffffff?text=No+Poster';
     }
+
+    // 优先使用源平台自带的简介与描述，避免 TMDB 模糊匹配错误时显示不相干的电影介绍
+    const overviewText = item.overview || item.tmdbDetails?.overview || '';
+    const desc = overviewText ? overviewText.substring(0, 100) + '...' : '暂无详细简介';
+    const score = item.vote_average || item.rating || 'N/A';
 
     // 优先使用中文演员名字
     let actors = '暂无演员信息';
