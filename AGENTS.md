@@ -1,13 +1,13 @@
-# 🛠️ Developer & AI Agent Manual: RMBD Project
+# 🛠️ Developer & AI Agent Manual: Movie Recommendation Bot Project
 
-Welcome to the **RMBD** developer guide. This document is designed for both human developers and agentic AIs (like Antigravity) to rapidly understand the repository structure, codebase logic, test procedures, compilation steps, and edge-computing specific constraints.
+Welcome to the **Movie Recommendation Bot** developer guide. This document is designed for both human developers and agentic AIs (like Antigravity) to rapidly understand the repository structure, codebase logic, test procedures, compilation steps, and edge-computing specific constraints.
 
 ---
 
 ## 📂 Directory Structure
 
 ```text
-rmbd/
+movie-bot/
 ├── .github/                # GitHub Action workflows
 ├── src/
 │   └── index.ts            # Core entry point (Worker Router & Main Logic)

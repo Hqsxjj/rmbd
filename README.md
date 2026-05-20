@@ -1,4 +1,4 @@
-# 🎬 RMBD 聚合影视推荐与多通道推送系统
+# 🎬 聚合影视推荐与多通道推送系统
 
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -137,7 +137,7 @@ npx wrangler secret put HCTI_API_KEY
 npm run deploy
 ```
 部署成功后，控制台会输出您专属的 Cloudflare Worker URL，例如：
-`https://rmbd.your-username.workers.dev`
+`https://movie-bot.your-username.workers.dev`
 
 ---
 
