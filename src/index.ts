@@ -102,21 +102,79 @@ function cleanTitle(title: string): string {
     .trim();
 }
 
-// 通过标题搜索 TMDB 获取 ID
-async function searchTmdbByTitle(title: string, type: string, apiKey: string): Promise<{ id: number; media_type: "movie" | "tv" } | null> {
+// 通过标题搜索 TMDB 获取 ID 并进行年份/标题相似度/流行度多维评分匹配
+async function searchTmdbByTitle(title: string, type: string, apiKey: string, year?: string | null): Promise<{ id: number; media_type: "movie" | "tv" } | null> {
   if (!title || !apiKey) return null;
   const searchType = type === "mixed" ? "multi" : type;
   try {
-    const url = `https://api.themoviedb.org/3/search/${searchType}?api_key=${apiKey}&query=${encodeURIComponent(title)}&language=zh-CN&page=1`;
+    let url = `https://api.themoviedb.org/3/search/${searchType}?api_key=${apiKey}&query=${encodeURIComponent(title)}&language=zh-CN&page=1`;
+    if (year) {
+      if (searchType === "movie") {
+        url += `&primary_release_year=${year}`;
+      } else if (searchType === "tv") {
+        url += `&first_air_date_year=${year}`;
+      }
+    }
     const res = await fetch(url, {
       cf: { cacheTtl: 86400, cacheEverything: true }
     } as any);
     if (!res.ok) return null;
     const json: any = await res.json();
     if (json.results && json.results.length > 0) {
-      const result = json.results[0];
-      const media_type = result.media_type === "tv" ? "tv" : "movie";
-      return { id: result.id, media_type };
+      // 评分系统选择最佳匹配
+      let bestResult = json.results[0];
+      let maxScore = -1;
+
+      for (const result of json.results) {
+        let score = 0;
+        
+        // 标题匹配
+        const rTitle = result.title || result.name || "";
+        const rOriginalTitle = result.original_title || result.original_name || "";
+        const cleanSearch = title.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]/g, "");
+        const cleanRTitle = rTitle.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]/g, "");
+        const cleanROrig = rOriginalTitle.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]/g, "");
+
+        if (cleanSearch && (cleanRTitle.includes(cleanSearch) || cleanSearch.includes(cleanRTitle))) {
+          score += 10;
+          if (cleanRTitle === cleanSearch) {
+            score += 10; // 精确匹配
+          }
+        }
+        if (cleanSearch && (cleanROrig.includes(cleanSearch) || cleanSearch.includes(cleanROrig))) {
+          score += 5;
+        }
+
+        // 年份匹配
+        if (year) {
+          const yearNum = parseInt(year);
+          const rDate = result.release_date || result.first_air_date || "";
+          const rYearMatch = rDate.match(/\b(19\d{2}|20\d{2})\b/);
+          if (rYearMatch) {
+            const rYear = parseInt(rYearMatch[1]);
+            if (rYear === yearNum) {
+              score += 15; // 年份完全相同
+            } else if (Math.abs(rYear - yearNum) === 1) {
+              score += 8; // 相差一年
+            } else {
+              score -= 5; // 年份相差较大
+            }
+          }
+        }
+
+        // 流行度加成
+        if (result.popularity) {
+          score += Math.min(result.popularity / 50, 5); 
+        }
+
+        if (score > maxScore) {
+          maxScore = score;
+          bestResult = result;
+        }
+      }
+
+      const media_type = bestResult.media_type === "tv" ? "tv" : "movie";
+      return { id: bestResult.id, media_type };
     }
   } catch (e) {
     console.error(`TMDB 搜索失败: ${title}`);
@@ -223,13 +281,25 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
     if (bank.collection_id) {
       const subjects = data.subject_collection_items || [];
       for (const s of subjects.slice(0, 20)) {
+        const target = s.target;
         let poster = "";
+        
+        // 兼容外层直接定义或内层 target 包裹结构，确保海报 100% 正确抓取
         if (typeof s.cover === "string") poster = s.cover;
         else if (s.cover?.url) poster = s.cover.url;
+        else if (s.cover_url) poster = s.cover_url;
         else if (s.pic?.normal) poster = s.pic.normal;
         else if (s.pic?.large) poster = s.pic.large;
 
-        const info = s.info || "";
+        if (!poster && target) {
+          if (typeof target.cover === "string") poster = target.cover;
+          else if (target.cover?.url) poster = target.cover.url;
+          else if (target.cover_url) poster = target.cover_url;
+          else if (target.pic?.normal) poster = target.pic.normal;
+          else if (target.pic?.large) poster = target.pic.large;
+        }
+
+        const info = s.info || target?.info || "";
         const parts = info.split(" / ");
         let doubanActors = "";
         let doubanMeta = "";
@@ -244,11 +314,11 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
         }
 
         items.push({
-          id: s.id,
-          media_type: s.type || bank.type,
-          title: s.title,
-          overview: s.description || s.info || "", 
-          rating: s.rating ? parseFloat(s.rating.value || "0") : 0,
+          id: s.id || target?.id,
+          media_type: s.type || target?.type || bank.type,
+          title: s.title || target?.title,
+          overview: s.description || s.info || target?.description || target?.info || "", 
+          rating: s.rating ? parseFloat(s.rating.value || "0") : (target?.rating ? parseFloat(target.rating.value || "0") : 0),
           douban_poster: poster,
           douban_actors: doubanActors,
           douban_meta: doubanMeta
@@ -311,7 +381,7 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
 // HTML 网页渲染
 // ==========================================
 
-function buildHtml(bankName: string, items: BankItem[]): string {
+function buildHtml(bankName: string, items: BankItem[], baseUrl: string): string {
   let cardsHtml = '';
 
   items.forEach((item, index) => {
@@ -341,9 +411,8 @@ function buildHtml(bankName: string, items: BankItem[]): string {
       if (posterSrc.startsWith("//")) {
         posterSrc = "https:" + posterSrc;
       }
-      if (!posterSrc.includes("wsrv.nl")) {
-        posterSrc = `https://wsrv.nl/?url=${encodeURIComponent(posterSrc)}&default=https://placehold.co/140x200/cccccc/ffffff?text=No+Poster`;
-      }
+      // 使用我们 Worker 自身的本地图片代理，100% 绕过防盗链并确保极速加载
+      posterSrc = `${baseUrl}/imgproxy?url=${encodeURIComponent(posterSrc)}`;
     } else {
       posterSrc = 'https://placehold.co/140x200/cccccc/ffffff?text=No+Poster';
     }
@@ -395,7 +464,7 @@ function buildHtml(bankName: string, items: BankItem[]): string {
       if (topPoster.startsWith("//")) {
         topPoster = "https:" + topPoster;
       }
-      ogImage = `https://wsrv.nl/?url=${encodeURIComponent(topPoster)}&w=1200&h=630&fit=cover&default=https://placehold.co/1200x630/cccccc/ffffff?text=RMBD`;
+      ogImage = `${baseUrl}/imgproxy?url=${encodeURIComponent(topPoster)}`;
     }
   }
   const top3Names = items.slice(0, 3).map(i => i.title || i.name).filter(Boolean).join(' / ');
@@ -465,7 +534,7 @@ function buildHtml(bankName: string, items: BankItem[]): string {
 }
 
 // 从榜单获取并渲染完整的 HTML
-async function getBankHtml(bank: TargetBank, env: Env): Promise<string> {
+async function getBankHtml(bank: TargetBank, env: Env, baseUrl: string): Promise<string> {
   const items = await fetchBankData(bank, env);
   if (items.length === 0) {
     throw new Error("获取榜单数据为空");
@@ -475,9 +544,20 @@ async function getBankHtml(bank: TargetBank, env: Env): Promise<string> {
     let tmdbId = item.tmdb_id;
     let itemType = item.media_type || bank.type || "movie";
 
+    // 提取年份，用于 TMDB 关联的二次校验
+    let year: string | null = null;
+    if (item.douban_meta) {
+      const ym = item.douban_meta.match(/\b(19\d{2}|20\d{2})\b/);
+      if (ym) year = ym[1];
+    }
+    if (!year && item.maoyan_rt) {
+      const ym = item.maoyan_rt.match(/\b(19\d{2}|20\d{2})\b/);
+      if (ym) year = ym[1];
+    }
+
     if (!tmdbId && item.title) {
       const cleanedTitle = cleanTitle(item.title);
-      const searchResult = await searchTmdbByTitle(cleanedTitle, itemType, env.TMDB_API_KEY);
+      const searchResult = await searchTmdbByTitle(cleanedTitle, itemType, env.TMDB_API_KEY, year);
       if (searchResult) {
         tmdbId = searchResult.id;
         itemType = searchResult.media_type;
@@ -496,7 +576,7 @@ async function getBankHtml(bank: TargetBank, env: Env): Promise<string> {
     }
   }));
 
-  return buildHtml(bank.name, hydratedItems);
+  return buildHtml(bank.name, hydratedItems, baseUrl);
 }
 
 interface RenderResult {
@@ -1004,6 +1084,37 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
+    // 路由：防盗链本地图片代理，绕过豆瓣/猫眼图片拦截，内置强缓存加速页面渲染
+    if (request.method === "GET" && url.pathname === "/imgproxy") {
+      const targetUrl = url.searchParams.get("url");
+      if (!targetUrl) {
+        return new Response("Missing url parameter", { status: 400 });
+      }
+      try {
+        const headers: any = {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        };
+        if (targetUrl.includes("doubanio.com")) {
+          headers["Referer"] = "https://m.douban.com/";
+        } else if (targetUrl.includes("meituan.net") || targetUrl.includes("maoyan.com")) {
+          headers["Referer"] = "https://m.maoyan.com/";
+        }
+        const imgRes = await fetch(targetUrl, { headers });
+        if (!imgRes.ok) {
+          return new Response(`Failed to fetch image: ${imgRes.status}`, { status: imgRes.status });
+        }
+        const response = new Response(imgRes.body, {
+          headers: {
+            "Content-Type": imgRes.headers.get("Content-Type") || "image/jpeg",
+            "Cache-Control": "public, max-age=604800, s-maxage=604800" // 强缓存 7 天
+          }
+        });
+        return response;
+      } catch (err: any) {
+        return new Response(`Error proxying image: ${err.message}`, { status: 500 });
+      }
+    }
+
     // 路由：动态渲染指定榜单的网页
     if (request.method === "GET" && url.pathname.startsWith("/view/")) {
       const cache = caches.default;
@@ -1025,7 +1136,9 @@ export default {
       }
       
       try {
-        const htmlContent = await getBankHtml(bank, env);
+        const urlObj = new URL(request.url);
+        const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
+        const htmlContent = await getBankHtml(bank, env, baseUrl);
         const response = new Response(htmlContent, {
           headers: {
             "Content-Type": "text/html;charset=UTF-8",
