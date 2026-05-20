@@ -56,6 +56,8 @@ interface Env {
   TG_BOT_TOKEN: string;
   TG_CHAT_ID: string;
   WECOM_WEBHOOK_URL: string;
+  HCTI_API_ID?: string;
+  HCTI_API_KEY?: string;
 }
 
 interface TmdbDetails {
@@ -64,6 +66,8 @@ interface TmdbDetails {
   date: string;
   poster: string;
   overview?: string;
+  genres?: string;
+  countries?: string;
 }
 
 interface BankItem {
@@ -77,6 +81,8 @@ interface BankItem {
   rating?: number;
   tmdbDetails?: TmdbDetails;
   douban_poster?: string;
+  douban_actors?: string;
+  douban_meta?: string;
   maoyan_actors?: string;
   maoyan_rt?: string;
   maoyan_showInfo?: string;
@@ -91,22 +97,26 @@ function cleanTitle(title: string): string {
   if (!title) return "";
   return title
     .replace(/第[一二三四五六七八九十\d]+[季部]/g, '') // 去除“第一季”、“第2部”等
-    .replace(/\s\d{4}$/, '') // 去除结尾的年份
-    .replace(/[·：: \-].*$/, '') // 去除副标题 (如 狐妖小红娘·月红篇 -> 狐妖小红娘)
+    .replace(/特别篇/g, '') // 去除特别篇
+    .replace(/\s+/g, ' ') // 合并连续空格
     .trim();
 }
 
 // 通过标题搜索 TMDB 获取 ID
-async function searchTmdbByTitle(title: string, type: string, apiKey: string): Promise<number | null> {
+async function searchTmdbByTitle(title: string, type: string, apiKey: string): Promise<{ id: number; media_type: "movie" | "tv" } | null> {
   if (!title || !apiKey) return null;
   const searchType = type === "mixed" ? "multi" : type;
   try {
     const url = `https://api.themoviedb.org/3/search/${searchType}?api_key=${apiKey}&query=${encodeURIComponent(title)}&language=zh-CN&page=1`;
-    const res = await fetch(url);
+    const res = await fetch(url, {
+      cf: { cacheTtl: 86400, cacheEverything: true }
+    } as any);
     if (!res.ok) return null;
     const json: any = await res.json();
     if (json.results && json.results.length > 0) {
-      return json.results[0].id;
+      const result = json.results[0];
+      const media_type = result.media_type === "tv" ? "tv" : "movie";
+      return { id: result.id, media_type };
     }
   } catch (e) {
     console.error(`TMDB 搜索失败: ${title}`);
@@ -119,9 +129,10 @@ async function fetchTmdbDetails(tmdbId: number, type: string, apiKey: string): P
   if (!tmdbId || isNaN(tmdbId) || !apiKey) return result;
 
   try {
-    const fetchType = type === "mixed" ? "movie" : type; // Default to movie if mixed
-    const url = `https://api.themoviedb.org/3/${fetchType}/${tmdbId}?api_key=${apiKey}&append_to_response=credits&language=zh-CN`;
-    const res = await fetch(url);
+    const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${apiKey}&append_to_response=credits&language=zh-CN`;
+    const res = await fetch(url, {
+      cf: { cacheTtl: 86400, cacheEverything: true }
+    } as any);
     if (!res.ok) return result;
     const json: any = await res.json();
 
@@ -143,6 +154,14 @@ async function fetchTmdbDetails(tmdbId: number, type: string, apiKey: string): P
     if (json.production_companies) {
       result.companies = json.production_companies.slice(0, 2).map((c: any) => c.name).join(" / ");
     }
+
+    if (json.genres) {
+      result.genres = json.genres.map((g: any) => g.name).join(" / ");
+    }
+
+    if (json.production_countries) {
+      result.countries = json.production_countries.map((c: any) => c.name).join(" / ");
+    }
   } catch (err) {
     console.error(`TMDB 数据补全失败 ID: ${tmdbId}`);
   }
@@ -158,7 +177,9 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
 
   if (bank.source === "tmdb" && bank.path) {
     const url = `https://api.themoviedb.org/3${bank.path}?api_key=${env.TMDB_API_KEY}&language=zh-CN&page=1`;
-    const res = await fetch(url);
+    const res = await fetch(url, {
+      cf: { cacheTtl: 3600, cacheEverything: true }
+    } as any);
     if (!res.ok) {
       console.error(`TMDB 榜单获取失败: ${bank.name}`);
       return [];
@@ -189,8 +210,9 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer": "https://m.douban.com/subject_collection/" + (bank.collection_id || "")
-      }
-    });
+      },
+      cf: { cacheTtl: 3600, cacheEverything: true }
+    } as any);
     
     if (!res.ok) {
       console.error(`豆瓣榜单获取失败: ${bank.name}`);
@@ -207,13 +229,29 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
         else if (s.pic?.normal) poster = s.pic.normal;
         else if (s.pic?.large) poster = s.pic.large;
 
+        const info = s.info || "";
+        const parts = info.split(" / ");
+        let doubanActors = "";
+        let doubanMeta = "";
+        if (parts.length >= 4) {
+          doubanActors = parts[parts.length - 1].trim().replace(/\s+/g, " / ");
+          doubanMeta = parts.slice(0, 3).join(" / ");
+        } else if (parts.length === 3) {
+          doubanActors = parts[2].trim().replace(/\s+/g, " / ");
+          doubanMeta = parts.slice(0, 2).join(" / ");
+        } else {
+          doubanMeta = info;
+        }
+
         items.push({
           id: s.id,
           media_type: s.type || bank.type,
           title: s.title,
           overview: s.description || s.info || "", 
           rating: s.rating ? parseFloat(s.rating.value || "0") : 0,
-          douban_poster: poster
+          douban_poster: poster,
+          douban_actors: doubanActors,
+          douban_meta: doubanMeta
         });
       }
     } else {
@@ -241,8 +279,9 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
       headers: {
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
         "Referer": "https://m.maoyan.com/"
-      }
-    });
+      },
+      cf: { cacheTtl: 3600, cacheEverything: true }
+    } as any);
     if (!res.ok) {
       console.error(`猫眼榜单获取失败: ${bank.name}`);
       return [];
@@ -282,8 +321,21 @@ function buildHtml(bankName: string, items: BankItem[]): string {
     else if (index === 2) rankClass = 'top3';
 
     const title = item.title || item.name || '未知影视';
-    const year = item.tmdbDetails?.date && item.tmdbDetails.date !== '未知' ? item.tmdbDetails.date : (item.maoyan_rt || '未知');
-    const overviewText = item.overview || item.tmdbDetails?.overview || '';
+    
+    // 构造中文的 meta-tags
+    let metaText = '';
+    const year = item.tmdbDetails?.date && item.tmdbDetails.date !== '未知' ? item.tmdbDetails.date : (item.maoyan_rt ? item.maoyan_rt.split('-')[0] : '未知');
+    if (item.douban_meta) {
+      metaText = item.douban_meta;
+    } else {
+      const genres = item.tmdbDetails?.genres || '';
+      const countries = item.tmdbDetails?.countries || '';
+      metaText = year;
+      if (countries) metaText += ` / ${countries}`;
+      if (genres) metaText += ` / ${genres}`;
+    }
+
+    const overviewText = item.tmdbDetails?.overview || item.overview || '';
     const desc = overviewText ? overviewText.substring(0, 100) + '...' : '暂无详细简介';
     const score = item.vote_average || item.rating || 'N/A';
     
@@ -295,8 +347,15 @@ function buildHtml(bankName: string, items: BankItem[]): string {
       posterSrc = 'https://placehold.co/140x200/cccccc/ffffff?text=No+Poster';
     }
 
-    const actors = (item.tmdbDetails?.actors && item.tmdbDetails.actors !== '暂无演员信息') ? item.tmdbDetails.actors : (item.maoyan_actors || '暂无演员信息');
-    const companies = item.tmdbDetails?.companies || '暂无';
+    // 优先使用中文演员名字
+    let actors = '暂无演员信息';
+    if (item.maoyan_actors) {
+      actors = item.maoyan_actors.replace(/,/g, " / ");
+    } else if (item.douban_actors) {
+      actors = item.douban_actors;
+    } else if (item.tmdbDetails?.actors && item.tmdbDetails.actors !== '暂无演员信息') {
+      actors = item.tmdbDetails.actors;
+    }
 
     const maoyanInfo = sanitizeMaoyanShowInfo(item.maoyan_showInfo || '');
     const showInfoHtml = maoyanInfo.display ? `<div style="color:#FF5722; font-size: 14px; font-weight: 600; margin-top: 8px;">🔥 ${maoyanInfo.display}</div>` : '';
@@ -308,7 +367,7 @@ function buildHtml(bankName: string, items: BankItem[]): string {
         <img class="poster" src="${posterSrc}" alt="${title}" loading="lazy" />
         <div class="info-area">
           <h2 class="title">${title}</h2>
-          <div class="meta-tags">${year} / ${companies}</div>
+          <div class="meta-tags">${metaText}</div>
           <div class="description">${desc}</div>
           <div class="cast">👥 ${actors}</div>
           ${showInfoHtml}
@@ -397,6 +456,122 @@ function buildHtml(bankName: string, items: BankItem[]): string {
 </html>`;
 }
 
+// 从榜单获取并渲染完整的 HTML
+async function getBankHtml(bank: TargetBank, env: Env): Promise<string> {
+  const items = await fetchBankData(bank, env);
+  if (items.length === 0) {
+    throw new Error("获取榜单数据为空");
+  }
+
+  const hydratedItems = await Promise.all(items.map(async (item) => {
+    let tmdbId = item.tmdb_id;
+    let itemType = item.media_type || bank.type || "movie";
+
+    if (!tmdbId && item.title) {
+      const cleanedTitle = cleanTitle(item.title);
+      const searchResult = await searchTmdbByTitle(cleanedTitle, itemType, env.TMDB_API_KEY);
+      if (searchResult) {
+        tmdbId = searchResult.id;
+        itemType = searchResult.media_type;
+      }
+    }
+
+    if (itemType === "mixed") {
+      itemType = "movie";
+    }
+
+    if (tmdbId) {
+      const tmdbDetails = await fetchTmdbDetails(tmdbId, itemType, env.TMDB_API_KEY);
+      return { ...item, media_type: itemType, tmdbDetails };
+    } else {
+      return { ...item, media_type: itemType, tmdbDetails: { actors: "暂无", companies: "暂无", date: "未知", poster: "" } };
+    }
+  }));
+
+  return buildHtml(bank.name, hydratedItems);
+}
+
+// 调用 HtmlCssToImage API 渲染 HTML 为图片 URL
+async function renderHtmlToImage(htmlContent: string, apiId: string, apiKey: string): Promise<string | null> {
+  try {
+    const url = "https://hcti.io/v1/image";
+    const auth = btoa(`${apiId}:${apiKey}`);
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Basic ${auth}`
+      },
+      body: JSON.stringify({
+        html: htmlContent,
+        viewport_width: 800
+      })
+    });
+
+    if (!response.ok) {
+      console.error(`HCTI API 错误: ${response.status}`, await response.text());
+      return null;
+    }
+
+    const data: any = await response.json();
+    return data.url || null;
+  } catch (err) {
+    console.error("调用 HCTI API 异常:", err);
+    return null;
+  }
+}
+
+// 下载图片，计算 MD5 和 Base64，并发送到企业微信 Webhook
+async function processAndSendImage(env: Env, imageUrl: string): Promise<boolean> {
+  try {
+    const res = await fetch(imageUrl);
+    if (!res.ok) {
+      console.error(`下载 HCTI 渲染图片失败: ${res.status}`);
+      return false;
+    }
+
+    const arrayBuffer = await res.arrayBuffer();
+
+    // 1. 计算 raw binary 数据的 MD5
+    const md5Buffer = await crypto.subtle.digest("MD5", arrayBuffer);
+    const md5Hex = Array.from(new Uint8Array(md5Buffer))
+      .map(b => b.toString(16).padStart(2, "0"))
+      .join("");
+
+    // 2. 使用 nodejs_compat Buffer 编码为 Base64
+    const base64Data = Buffer.from(arrayBuffer).toString("base64");
+
+    // 3. 发送给企业微信
+    const wecomRes = await fetch(env.WECOM_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        msgtype: "image",
+        image: {
+          base64: base64Data,
+          md5: md5Hex
+        }
+      })
+    });
+
+    if (!wecomRes.ok) {
+      console.error("企微发送图片消息失败:", await wecomRes.text());
+      return false;
+    }
+
+    const wecomJson: any = await wecomRes.json();
+    if (wecomJson.errcode !== 0) {
+      console.error(`企微发送图片消息 API 错误: errcode=${wecomJson.errcode}, errmsg=${wecomJson.errmsg}`);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error("下载/处理并发送企微图片发生异常:", err);
+    return false;
+  }
+}
+
 // ==========================================
 // 主流程
 // ==========================================
@@ -471,19 +646,49 @@ async function sendSummaryToWecom(env: Env, baseUrl: string): Promise<void> {
     console.error("发送企业微信开场消息异常:", err);
   }
 
+  const hasHcti = !!(env.HCTI_API_ID && env.HCTI_API_KEY);
+
   // 2. 依次发送每个榜单
   for (const bank of TARGET_BANKS) {
     const targetUrl = `${baseUrl}/view/${bank.id}?t=${Date.now()}`;
-    const content = `**${bank.name}**\n> [📋 查看完整榜单](${targetUrl})`;
-    try {
-      const res = await fetch(env.WECOM_WEBHOOK_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ msgtype: "markdown", markdown: { content } })
-      });
-      if (!res.ok) console.error(`企业微信推送失败: ${bank.name}`, await res.text());
-    } catch (err) {
-      console.error(`企业微信推送异常: ${bank.name}`, err);
+    let imageSent = false;
+
+    if (hasHcti) {
+      console.log(`尝试为榜单渲染长图: ${bank.name}`);
+      try {
+        const htmlContent = await getBankHtml(bank, env);
+        const imageUrl = await renderHtmlToImage(htmlContent, env.HCTI_API_ID!, env.HCTI_API_KEY!);
+        if (imageUrl) {
+          imageSent = await processAndSendImage(env, imageUrl);
+        }
+      } catch (err) {
+        console.error(`为榜单 ${bank.name} 渲染图片或发送失败，将退回到文本链接形式:`, err);
+      }
+    }
+
+    if (imageSent) {
+      const content = `**${bank.name}**\n> [📋 点击查看完整网页版](${targetUrl})`;
+      try {
+        await fetch(env.WECOM_WEBHOOK_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ msgtype: "markdown", markdown: { content } })
+        });
+      } catch (err) {
+        console.error(`发送企微后续链接失败: ${bank.name}`, err);
+      }
+    } else {
+      const content = `**${bank.name}**\n> [📋 查看完整榜单](${targetUrl})`;
+      try {
+        const res = await fetch(env.WECOM_WEBHOOK_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ msgtype: "markdown", markdown: { content } })
+        });
+        if (!res.ok) console.error(`企业微信推送失败: ${bank.name}`, await res.text());
+      } catch (err) {
+        console.error(`企业微信推送异常: ${bank.name}`, err);
+      }
     }
     // 企业微信限流：20条/分钟，间隔 3s 保险
     await new Promise(r => setTimeout(r, 3000));
@@ -598,6 +803,8 @@ async function checkDouban(): Promise<CheckResult> {
 async function checkWecom(env: Env): Promise<CheckResult> {
   if (!env.WECOM_WEBHOOK_URL) return { name: "企业微信 Webhook", icon: "💼", ok: false, detail: "未配置", latency: 0 };
   const start = Date.now();
+  const hasHcti = !!(env.HCTI_API_ID && env.HCTI_API_KEY);
+  const hctiStr = hasHcti ? " (图片渲染已启用)" : " (仅文本，图片渲染未配置)";
   try {
     // 发送一个空 body 触发格式错误响应，只要 HTTP 通则 URL 可达
     const res = await fetch(env.WECOM_WEBHOOK_URL, {
@@ -608,15 +815,15 @@ async function checkWecom(env: Env): Promise<CheckResult> {
     const json: any = await res.json();
     // errcode=0 表示成功；其他 errcode 说明 URL 可达但参数有误
     if (json.errcode === 0) {
-      return { name: "企业微信 Webhook", icon: "💼", ok: true, detail: "连接正常", latency: Date.now() - start };
+      return { name: "企业微信 Webhook", icon: "💼", ok: true, detail: "连接正常" + hctiStr, latency: Date.now() - start };
     }
     // content 为空时企业微信返回 errcode=93000，URL 依然可达
     if (res.ok) {
-      return { name: "企业微信 Webhook", icon: "💼", ok: true, detail: `URL 可达 (errcode=${json.errcode})`, latency: Date.now() - start };
+      return { name: "企业微信 Webhook", icon: "💼", ok: true, detail: `URL 可达 (errcode=${json.errcode})${hctiStr}`, latency: Date.now() - start };
     }
-    return { name: "企业微信 Webhook", icon: "💼", ok: false, detail: `HTTP ${res.status}`, latency: Date.now() - start };
+    return { name: "企业微信 Webhook", icon: "💼", ok: false, detail: `HTTP ${res.status}${hctiStr}`, latency: Date.now() - start };
   } catch (e: any) {
-    return { name: "企业微信 Webhook", icon: "💼", ok: false, detail: `连接失败: ${e.message}`, latency: Date.now() - start };
+    return { name: "企业微信 Webhook", icon: "💼", ok: false, detail: `连接失败: ${e.message}${hctiStr}`, latency: Date.now() - start };
   }
 }
 
@@ -790,6 +997,15 @@ export default {
 
     // 路由：动态渲染指定榜单的网页
     if (request.method === "GET" && url.pathname.startsWith("/view/")) {
+      const cache = caches.default;
+      const nocache = url.searchParams.get("nocache") === "true";
+      if (!nocache) {
+        const cachedResponse = await cache.match(request);
+        if (cachedResponse) {
+          return cachedResponse;
+        }
+      }
+
       const parts = url.pathname.split("/");
       const bankId = parts[2];
       
@@ -800,33 +1016,19 @@ export default {
       }
       
       try {
-        // 1. 抓取该榜单的 20 条数据
-        const items = await fetchBankData(bank, env);
-        if (items.length === 0) {
-          return new Response("❌ 获取榜单数据为空", { status: 500, headers: { "Content-Type": "text/plain;charset=UTF-8" } });
+        const htmlContent = await getBankHtml(bank, env);
+        const response = new Response(htmlContent, {
+          headers: {
+            "Content-Type": "text/html;charset=UTF-8",
+            "Cache-Control": "public, s-maxage=3600, max-age=3600"
+          }
+        });
+
+        if (!nocache) {
+          ctx.waitUntil(cache.put(request, response.clone()));
         }
 
-        // 2. 并发请求 TMDB 补全详情
-        const hydratedItems = await Promise.all(items.map(async (item) => {
-          let tmdbId = item.tmdb_id;
-          const itemType = item.media_type || bank.type || "movie";
-
-          if (!tmdbId && item.title) {
-            const cleanedTitle = cleanTitle(item.title);
-            tmdbId = (await searchTmdbByTitle(cleanedTitle, itemType, env.TMDB_API_KEY)) || undefined;
-          }
-
-          if (tmdbId) {
-            const tmdbDetails = await fetchTmdbDetails(tmdbId, itemType, env.TMDB_API_KEY);
-            return { ...item, tmdbDetails };
-          } else {
-            return { ...item, tmdbDetails: { actors: "暂无", companies: "暂无", date: "未知", poster: "" } };
-          }
-        }));
-
-        // 3. 构建网页并返回
-        const htmlContent = buildHtml(bank.name, hydratedItems);
-        return new Response(htmlContent, { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+        return response;
 
       } catch (e: any) {
         return new Response(`❌ 渲染网页发生异常: ${e.message}`, { status: 500, headers: { "Content-Type": "text/plain;charset=UTF-8" } });
