@@ -24,6 +24,12 @@
 	"vars": {
 		"HCTI_API_ID": "01KRT1WE15XT6X6D87N16Q8CKH",
 		"HCTI_API_KEY": "019e341e-3825-7962-adac-9e160818f301"
-	}
+	},
+	"kv_namespaces": [
+		{
+			"binding": "BOT_CONFIG",
+			"id": "rmbd_bot_config_namespace"
+		}
+	]
 }
 

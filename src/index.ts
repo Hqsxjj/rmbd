@@ -59,6 +59,44 @@ interface Env {
   HCTI_API_ID?: string;
   HCTI_API_KEY?: string;
   PIN?: string;
+  BOT_CONFIG?: KVNamespace;
+}
+
+interface BotConfig {
+  TMDB_API_KEY: string;
+  TG_BOT_TOKEN: string;
+  TG_CHAT_ID: string;
+  WECOM_WEBHOOK_URL: string;
+  HCTI_API_ID?: string;
+  HCTI_API_KEY?: string;
+  PIN?: string;
+}
+
+async function getMergedConfig(env: Env): Promise<BotConfig> {
+  const keys: (keyof BotConfig)[] = [
+    "TMDB_API_KEY",
+    "TG_BOT_TOKEN",
+    "TG_CHAT_ID",
+    "WECOM_WEBHOOK_URL",
+    "HCTI_API_ID",
+    "HCTI_API_KEY",
+    "PIN"
+  ];
+  const config = {} as any;
+  for (const key of keys) {
+    let value = "";
+    if (env.BOT_CONFIG) {
+      const kvVal = await env.BOT_CONFIG.get(key);
+      if (kvVal !== null) {
+        value = kvVal.trim();
+      }
+    }
+    if (!value) {
+      value = ((env as any)[key] || "").trim();
+    }
+    config[key] = value;
+  }
+  return config;
 }
 
 interface TmdbDetails {
@@ -231,11 +269,11 @@ async function fetchTmdbDetails(tmdbId: number, type: string, apiKey: string): P
 // 数据抓取逻辑
 // ==========================================
 
-async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
+async function fetchBankData(bank: TargetBank, config: BotConfig): Promise<BankItem[]> {
   const items: BankItem[] = [];
 
   if (bank.source === "tmdb" && bank.path) {
-    const url = `https://api.themoviedb.org/3${bank.path}?api_key=${env.TMDB_API_KEY}&language=zh-CN&page=1`;
+    const url = `https://api.themoviedb.org/3${bank.path}?api_key=${config.TMDB_API_KEY}&language=zh-CN&page=1`;
     const res = await fetch(url, {
       cf: { cacheTtl: 3600, cacheEverything: true }
     } as any);
@@ -535,8 +573,8 @@ function buildHtml(bankName: string, items: BankItem[], baseUrl: string): string
 }
 
 // 从榜单获取并渲染完整的 HTML
-async function getBankHtml(bank: TargetBank, env: Env, baseUrl: string): Promise<string> {
-  const items = await fetchBankData(bank, env);
+async function getBankHtml(bank: TargetBank, config: BotConfig, baseUrl: string): Promise<string> {
+  const items = await fetchBankData(bank, config);
   if (items.length === 0) {
     throw new Error("获取榜单数据为空");
   }
@@ -558,7 +596,7 @@ async function getBankHtml(bank: TargetBank, env: Env, baseUrl: string): Promise
 
     if (!tmdbId && item.title) {
       const cleanedTitle = cleanTitle(item.title);
-      const searchResult = await searchTmdbByTitle(cleanedTitle, itemType, env.TMDB_API_KEY, year);
+      const searchResult = await searchTmdbByTitle(cleanedTitle, itemType, config.TMDB_API_KEY, year);
       if (searchResult) {
         tmdbId = searchResult.id;
         itemType = searchResult.media_type;
@@ -570,7 +608,7 @@ async function getBankHtml(bank: TargetBank, env: Env, baseUrl: string): Promise
     }
 
     if (tmdbId) {
-      const tmdbDetails = await fetchTmdbDetails(tmdbId, itemType, env.TMDB_API_KEY);
+      const tmdbDetails = await fetchTmdbDetails(tmdbId, itemType, config.TMDB_API_KEY);
       return { ...item, media_type: itemType, tmdbDetails };
     } else {
       return { ...item, media_type: itemType, tmdbDetails: { actors: "暂无", companies: "暂无", date: "未知", poster: "" } };
@@ -618,7 +656,8 @@ async function renderHtmlToImage(htmlContent: string, apiId: string, apiKey: str
 }
 
 // 下载图片，计算 MD5 和 Base64，并发送到企业微信 Webhook
-async function processAndSendImage(env: Env, imageUrl: string): Promise<boolean> {
+// 下载图片，计算 MD5 和 Base64，并发送到企业微信 Webhook
+async function processAndSendImage(config: BotConfig, imageUrl: string): Promise<boolean> {
   try {
     const res = await fetch(imageUrl);
     if (!res.ok) {
@@ -644,7 +683,7 @@ async function processAndSendImage(env: Env, imageUrl: string): Promise<boolean>
     const base64Data = Buffer.from(arrayBuffer).toString("base64");
 
     // 3. 发送给企业微信
-    const wecomRes = await fetch(env.WECOM_WEBHOOK_URL, {
+    const wecomRes = await fetch(config.WECOM_WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -678,10 +717,10 @@ async function processAndSendImage(env: Env, imageUrl: string): Promise<boolean>
 // 主流程
 // ==========================================
 
-async function sendSummaryToTelegram(env: Env, baseUrl: string): Promise<void> {
-  const tgUrl = `https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`;
+async function sendSummaryToTelegram(config: BotConfig, baseUrl: string): Promise<void> {
+  const tgUrl = `https://api.telegram.org/bot${config.TG_BOT_TOKEN}/sendMessage`;
   const now = new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' });
-  const activePin = env.PIN || MANUAL_PUSH_PIN;
+  const activePin = config.PIN || MANUAL_PUSH_PIN;
   
   // 1. 发送开场白
   const introText = `🎬 <b>每日影视榜单已更新</b> (${now})\n\n正在为您推送 ${TARGET_BANKS.length} 个精选榜单...`;
@@ -689,7 +728,7 @@ async function sendSummaryToTelegram(env: Env, baseUrl: string): Promise<void> {
     await fetch(tgUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: env.TG_CHAT_ID, text: introText, parse_mode: "HTML", disable_web_page_preview: true })
+      body: JSON.stringify({ chat_id: config.TG_CHAT_ID, text: introText, parse_mode: "HTML", disable_web_page_preview: true })
     });
   } catch (err) {
     console.error("发送 TG 开场白异常:", err);
@@ -706,7 +745,7 @@ async function sendSummaryToTelegram(env: Env, baseUrl: string): Promise<void> {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          chat_id: env.TG_CHAT_ID,
+          chat_id: config.TG_CHAT_ID,
           text: text,
           parse_mode: "HTML",
           link_preview_options: {
@@ -729,21 +768,21 @@ async function sendSummaryToTelegram(env: Env, baseUrl: string): Promise<void> {
 // 企业微信 Webhook 推送
 // ==========================================
 
-async function sendSummaryToWecom(env: Env, baseUrl: string): Promise<void> {
-  if (!env.WECOM_WEBHOOK_URL) {
+async function sendSummaryToWecom(config: BotConfig, baseUrl: string): Promise<void> {
+  if (!config.WECOM_WEBHOOK_URL) {
     console.log("未配置 WECOM_WEBHOOK_URL，跳过企业微信推送");
     return;
   }
 
   const now = new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' });
-  const activePin = env.PIN || MANUAL_PUSH_PIN;
+  const activePin = config.PIN || MANUAL_PUSH_PIN;
 
   // 1. 并发获取所有榜单的数据
   console.log("开始并发获取企微推送榜单数据...");
   const bankDataList = await Promise.all(
     TARGET_BANKS.map(async (bank) => {
       try {
-        const items = await fetchBankData(bank, env);
+        const items = await fetchBankData(bank, config);
         return { bank, items, success: true };
       } catch (e) {
         console.error(`获取榜单 ${bank.name} 数据失败:`, e);
@@ -791,7 +830,7 @@ async function sendSummaryToWecom(env: Env, baseUrl: string): Promise<void> {
     }
 
     try {
-      const res = await fetch(env.WECOM_WEBHOOK_URL, {
+      const res = await fetch(config.WECOM_WEBHOOK_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ msgtype: "markdown", markdown: { content: content.trim() } })
@@ -810,10 +849,10 @@ async function sendSummaryToWecom(env: Env, baseUrl: string): Promise<void> {
   }
 }
 
-async function runBotTask(env: Env, requestUrl: string): Promise<void> {
+async function runBotTask(config: BotConfig, requestUrl: string): Promise<void> {
   console.log("启动定时汇总任务...");
 
-  if (!env.TMDB_API_KEY || !env.TG_BOT_TOKEN) {
+  if (!config.TMDB_API_KEY || !config.TG_BOT_TOKEN) {
     console.error("环境变量配置不完整，请配置 TMDB, TG 变量。");
     return;
   }
@@ -823,8 +862,8 @@ async function runBotTask(env: Env, requestUrl: string): Promise<void> {
 
   // 并发推送 Telegram 和企业微信
   await Promise.all([
-    sendSummaryToTelegram(env, baseUrl),
-    sendSummaryToWecom(env, baseUrl)
+    sendSummaryToTelegram(config, baseUrl),
+    sendSummaryToWecom(config, baseUrl)
   ]);
 }
 
@@ -840,7 +879,7 @@ interface CheckResult {
   latency: number;
 }
 
-function checkEnvVars(env: Env): CheckResult {
+function checkEnvVars(config: BotConfig): CheckResult {
   const vars = [
     { key: "TMDB_API_KEY", label: "TMDB API Key" },
     { key: "TG_BOT_TOKEN", label: "TG Bot Token" },
@@ -850,7 +889,7 @@ function checkEnvVars(env: Env): CheckResult {
 
   const missing: string[] = [];
   for (const v of vars) {
-    if (!(env as any)[v.key]) {
+    if (!(config as any)[v.key]) {
       missing.push(v.label);
     }
   }
@@ -862,11 +901,11 @@ function checkEnvVars(env: Env): CheckResult {
   }
 }
 
-async function checkTelegram(env: Env): Promise<CheckResult> {
-  if (!env.TG_BOT_TOKEN) return { name: "Telegram Bot", icon: "🤖", ok: false, detail: "未配置", latency: 0 };
+async function checkTelegram(config: BotConfig): Promise<CheckResult> {
+  if (!config.TG_BOT_TOKEN) return { name: "Telegram Bot", icon: "🤖", ok: false, detail: "未配置", latency: 0 };
   const start = Date.now();
   try {
-    const res = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/getMe`);
+    const res = await fetch(`https://api.telegram.org/bot${config.TG_BOT_TOKEN}/getMe`);
     const json: any = await res.json();
     if (json.ok) return { name: "Telegram Bot", icon: "🤖", ok: true, detail: `@${json.result.username}`, latency: Date.now() - start };
     return { name: "Telegram Bot", icon: "🤖", ok: false, detail: `API 错误: ${json.description}`, latency: Date.now() - start };
@@ -875,26 +914,26 @@ async function checkTelegram(env: Env): Promise<CheckResult> {
   }
 }
 
-async function checkTelegramChat(env: Env): Promise<CheckResult> {
-  if (!env.TG_BOT_TOKEN || !env.TG_CHAT_ID) return { name: "Telegram Chat", icon: "💬", ok: false, detail: "未配置", latency: 0 };
+async function checkTelegramChat(config: BotConfig): Promise<CheckResult> {
+  if (!config.TG_BOT_TOKEN || !config.TG_CHAT_ID) return { name: "Telegram Chat", icon: "💬", ok: false, detail: "未配置", latency: 0 };
   const start = Date.now();
   try {
-    const res = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/getChat`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: env.TG_CHAT_ID })
+    const res = await fetch(`https://api.telegram.org/bot${config.TG_BOT_TOKEN}/getChat`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: config.TG_CHAT_ID })
     });
     const json: any = await res.json();
-    if (json.ok) return { name: "Telegram Chat", icon: "💬", ok: true, detail: `${json.result.type}: ${json.result.title || json.result.username || env.TG_CHAT_ID}`, latency: Date.now() - start };
+    if (json.ok) return { name: "Telegram Chat", icon: "💬", ok: true, detail: `${json.result.type}: ${json.result.title || json.result.username || config.TG_CHAT_ID}`, latency: Date.now() - start };
     return { name: "Telegram Chat", icon: "💬", ok: false, detail: `无法访问: ${json.description}`, latency: Date.now() - start };
   } catch (e: any) {
     return { name: "Telegram Chat", icon: "💬", ok: false, detail: `连接失败: ${e.message}`, latency: Date.now() - start };
   }
 }
 
-async function checkTmdb(env: Env): Promise<CheckResult> {
-  if (!env.TMDB_API_KEY) return { name: "TMDB API", icon: "🎥", ok: false, detail: "未配置", latency: 0 };
+async function checkTmdb(config: BotConfig): Promise<CheckResult> {
+  if (!config.TMDB_API_KEY) return { name: "TMDB API", icon: "🎥", ok: false, detail: "未配置", latency: 0 };
   const start = Date.now();
   try {
-    const res = await fetch(`https://api.themoviedb.org/3/movie/550?api_key=${env.TMDB_API_KEY}&language=zh-CN`);
+    const res = await fetch(`https://api.themoviedb.org/3/movie/550?api_key=${config.TMDB_API_KEY}&language=zh-CN`);
     if (res.ok) return { name: "TMDB API", icon: "🎥", ok: true, detail: `连接正常`, latency: Date.now() - start };
     return { name: "TMDB API", icon: "🎥", ok: false, detail: `HTTP ${res.status}`, latency: Date.now() - start };
   } catch (e: any) {
@@ -1094,22 +1133,22 @@ function buildRunResultHtml(message: string, success = true): string {
 
 
 // 发送 TG 测试文本消息
-async function sendTestTelegramMessage(env: Env): Promise<{ ok: boolean; detail: string }> {
-  if (!env.TG_BOT_TOKEN || !env.TG_CHAT_ID) return { ok: false, detail: "未配置 TG Token/ChatID" };
+async function sendTestTelegramMessage(config: BotConfig): Promise<{ ok: boolean; detail: string }> {
+  if (!config.TG_BOT_TOKEN || !config.TG_CHAT_ID) return { ok: false, detail: "未配置 TG Token/ChatID" };
   try {
-    const res = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${config.TG_BOT_TOKEN}/sendMessage`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: env.TG_CHAT_ID, text: `✅ <b>测试成功</b>\n🤖 消息推送通道畅通！`, parse_mode: "HTML" })
+      body: JSON.stringify({ chat_id: config.TG_CHAT_ID, text: `✅ <b>测试成功</b>\n🤖 消息推送通道畅通！`, parse_mode: "HTML" })
     });
     const json: any = await res.json();
     return json.ok ? { ok: true, detail: "发送成功" } : { ok: false, detail: json.description };
   } catch (e: any) { return { ok: false, detail: e.message }; }
 }
 
-async function sendTestWecomMessage(env: Env): Promise<{ ok: boolean; detail: string }> {
-  if (!env.WECOM_WEBHOOK_URL) return { ok: false, detail: "未配置 WECOM_WEBHOOK_URL" };
+async function sendTestWecomMessage(config: BotConfig): Promise<{ ok: boolean; detail: string }> {
+  if (!config.WECOM_WEBHOOK_URL) return { ok: false, detail: "未配置 WECOM_WEBHOOK_URL" };
   try {
-    const res = await fetch(env.WECOM_WEBHOOK_URL, {
+    const res = await fetch(config.WECOM_WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1301,9 +1340,321 @@ function buildLockScreenHtml(errorMsg: string = ""): string {
 // ==========================================
 // Worker 导出
 // ==========================================
+function buildAdminHtml(config: BotConfig, activePin: string): string {
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>机器人配置后台</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    background: #070a14;
+    color: #e2e8f0;
+    min-height: 100vh;
+    padding: 40px 20px;
+  }
+  .wrap {
+    max-width: 800px;
+    margin: 0 auto;
+    position: relative;
+  }
+  .bg-glow {
+    position: absolute;
+    width: 800px;
+    height: 800px;
+    background: radial-gradient(circle, rgba(99, 102, 241, 0.1) 0%, rgba(0, 0, 0, 0) 70%);
+    top: -200px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: -1;
+    pointer-events: none;
+  }
+  .header {
+    text-align: center;
+    margin-bottom: 40px;
+  }
+  .header h1 {
+    font-size: clamp(26px, 5vw, 38px);
+    font-weight: 800;
+    background: linear-gradient(135deg, #a5b4fc, #6366f1, #34d399);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .header p {
+    color: #64748b;
+    font-size: 15px;
+    margin-top: 10px;
+  }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 16px;
+    padding: 12px 24px;
+    backdrop-filter: blur(10px);
+  }
+  .nav-title {
+    font-weight: 700;
+    color: #cbd5e1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .nav-links {
+    display: flex;
+    gap: 16px;
+  }
+  .nav-link {
+    color: #94a3b8;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 600;
+    transition: color 0.2s;
+  }
+  .nav-link:hover {
+    color: #a5b4fc;
+  }
+  .form-container {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+  .card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 20px;
+    padding: 28px;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    transition: transform 0.2s, border-color 0.2s;
+  }
+  .card:hover {
+    border-color: rgba(99, 102, 241, 0.2);
+  }
+  .card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    padding-bottom: 12px;
+  }
+  .card-icon {
+    font-size: 24px;
+  }
+  .card-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #f1f5f9;
+  }
+  .card-desc {
+    font-size: 13px;
+    color: #64748b;
+    margin-left: auto;
+  }
+  .form-group {
+    margin-bottom: 20px;
+  }
+  .form-group:last-child {
+    margin-bottom: 0;
+  }
+  label {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+    color: #cbd5e1;
+    margin-bottom: 8px;
+  }
+  .input-desc {
+    font-size: 12px;
+    color: #64748b;
+    margin-bottom: 8px;
+    line-height: 1.4;
+  }
+  .input-wrapper {
+    position: relative;
+  }
+  input[type="text"], input[type="password"] {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 12px 16px;
+    color: #f8fafc;
+    font-size: 15px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  input:focus {
+    border-color: rgba(99, 102, 241, 0.5);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  }
+  .submit-area {
+    display: flex;
+    justify-content: flex-end;
+    gap: 16px;
+    margin-top: 12px;
+  }
+  button.btn {
+    border: none;
+    border-radius: 12px;
+    padding: 14px 28px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: white;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, #4f46e5, #6366f1);
+    box-shadow: 0 4px 15px rgba(99, 102, 241, 0.35);
+  }
+  .btn-primary:hover {
+    transform: translateY(-2px);
+    filter: brightness(1.1);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.45);
+  }
+  .btn-secondary {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #cbd5e1;
+  }
+  .btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+  button:active {
+    transform: scale(0.98);
+  }
+</style>
+</head>
+<body>
+<div class="bg-glow"></div>
+<div class="wrap">
+  <div class="header">
+    <h1>⚙️ 影视榜单配置后台</h1>
+    <p>可视化管理系统环境变量与安全校验选项</p>
+  </div>
+
+  <div class="nav-bar">
+    <div class="nav-title">
+      <span>🎬</span>
+      <span>Rmbd Bot Control Center</span>
+    </div>
+    <div class="nav-links">
+      <a class="nav-link" href="/status?pin=${encodeURIComponent(activePin)}">📊 系统状态</a>
+      <a class="nav-link" href="/admin?pin=${encodeURIComponent(activePin)}">⚙️ 动态变量</a>
+    </div>
+  </div>
+
+  <form class="form-container" method="POST" action="/api/save">
+    <!-- Hidden fields to pass PIN -->
+    <input type="hidden" name="pin" value="${activePin}" />
+
+    <!-- 1. TMDB 配置 -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">🎬</span>
+        <h2 class="card-title">TMDB API 配置</h2>
+        <span class="card-desc">必填</span>
+      </div>
+      <div class="form-group">
+        <label for="TMDB_API_KEY">TMDB API Key (v3)</label>
+        <div class="input-desc">用于搜索影视信息、补全中文字幕、海报和演员阵容。请至 <a href="https://www.themoviedb.org/settings/api" target="_blank" style="color: #a5b4fc; text-decoration: none;">TMDB 官网</a> 申请。</div>
+        <input type="text" id="TMDB_API_KEY" name="TMDB_API_KEY" value="${config.TMDB_API_KEY || ''}" placeholder="例如: 8f2b7405..." autocomplete="off" required />
+      </div>
+    </div>
+
+    <!-- 2. Telegram 配置 -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">🤖</span>
+        <h2 class="card-title">Telegram 推送配置</h2>
+        <span class="card-desc">必填</span>
+      </div>
+      <div class="form-group">
+        <label for="TG_BOT_TOKEN">TG Bot Token</label>
+        <div class="input-desc">通过 @BotFather 创建并获取的机器人 Token 凭证。</div>
+        <input type="text" id="TG_BOT_TOKEN" name="TG_BOT_TOKEN" value="${config.TG_BOT_TOKEN || ''}" placeholder="例如: 123456789:ABCdefGhI..." autocomplete="off" required />
+      </div>
+      <div class="form-group">
+        <label for="TG_CHAT_ID">TG Chat ID</label>
+        <div class="input-desc">目标推送的频道 (Channel)、群组 (Group) 或个人聊天的唯一 ID。如果是频道，请确保机器人为管理员。</div>
+        <input type="text" id="TG_CHAT_ID" name="TG_CHAT_ID" value="${config.TG_CHAT_ID || ''}" placeholder="例如: -100123456789 或 987654321" autocomplete="off" required />
+      </div>
+    </div>
+
+    <!-- 3. 企业微信配置 -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">💼</span>
+        <h2 class="card-title">企业微信推送配置</h2>
+        <span class="card-desc">可选</span>
+      </div>
+      <div class="form-group">
+        <label for="WECOM_WEBHOOK_URL">WeCom Webhook URL</label>
+        <div class="input-desc">企业微信群机器人的 Webhook 地址。配置后将自动进行 Markdown 消息分批排版推送。不配置则跳过企业微信渠道。</div>
+        <input type="text" id="WECOM_WEBHOOK_URL" name="WECOM_WEBHOOK_URL" value="${config.WECOM_WEBHOOK_URL || ''}" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." autocomplete="off" />
+      </div>
+    </div>
+
+    <!-- 4. HTML to Image 配置 -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">📸</span>
+        <h2 class="card-title">HCTI 渲染图片服务 (高级)</h2>
+        <span class="card-desc">可选</span>
+      </div>
+      <div class="form-group">
+        <label for="HCTI_API_ID">HCTI API ID</label>
+        <div class="input-desc">HtmlCssToImage 服务的 API ID，用于把榜单 HTML 高保真渲染为极速加载图片。</div>
+        <input type="text" id="HCTI_API_ID" name="HCTI_API_ID" value="${config.HCTI_API_ID || ''}" placeholder="例如: 01KRT1..." autocomplete="off" />
+      </div>
+      <div class="form-group">
+        <label for="HCTI_API_KEY">HCTI API Key</label>
+        <div class="input-desc">HtmlCssToImage 服务的 Secret Key。</div>
+        <input type="text" id="HCTI_API_KEY" name="HCTI_API_KEY" value="${config.HCTI_API_KEY || ''}" placeholder="例如: 019e341e-3825-..." autocomplete="off" />
+      </div>
+    </div>
+
+    <!-- 5. 安全 PIN 码 -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">🔒</span>
+        <h2 class="card-title">系统安全访问控制</h2>
+        <span class="card-desc">关键项</span>
+      </div>
+      <div class="form-group">
+        <label for="PIN">后台与网页访问安全 PIN 码</label>
+        <div class="input-desc">用于进入控制台、配置页面以及在企业微信中直接预览榜单长网页时的 4 位身份验证码。默认值为 <code>4321</code>。</div>
+        <input type="password" id="PIN" name="PIN" value="${config.PIN || ''}" placeholder="4 位数字" maxlength="20" autocomplete="off" required />
+      </div>
+    </div>
+
+    <div class="submit-area">
+      <a class="btn btn-secondary" href="/status?pin=${encodeURIComponent(activePin)}">返回控制台</a>
+      <button class="btn btn-primary" type="submit">💾 保存配置变量</button>
+    </div>
+  </form>
+</div>
+</body>
+</html>`;
+}
+
 export default {
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(runBotTask(env, "https://rmbd.workers.dev"));
+    const config = await getMergedConfig(env);
+    ctx.waitUntil(runBotTask(config, "https://rmbd.workers.dev"));
   },
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -1339,7 +1690,8 @@ export default {
       }
     }
 
-    const activePin = env.PIN || MANUAL_PUSH_PIN;
+    const config = await getMergedConfig(env);
+    const activePin = config.PIN || MANUAL_PUSH_PIN;
 
     // 从 Cookie 中获取 PIN
     const cookieHeader = request.headers.get("Cookie") || "";
@@ -1362,6 +1714,57 @@ export default {
           headers: { "Content-Type": "text/html;charset=UTF-8" }
         });
       }
+    }
+
+    // 路由：配置后台页面
+    if (request.method === "GET" && url.pathname === "/admin") {
+      const response = new Response(buildAdminHtml(config, activePin), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      if (urlPin === activePin) {
+        response.headers.append("Set-Cookie", `rmbd_pin=${encodeURIComponent(activePin)}; Path=/; Max-Age=2592000; SameSite=Lax; Secure`);
+      }
+      return response;
+    }
+
+    // 路由：保存配置接口
+    if (request.method === "POST" && url.pathname === "/api/save") {
+      const formData = await request.formData();
+      const formPin = (formData.get("pin") || "").toString().trim();
+      const authPin = formPin || cookiePin || urlPin;
+      
+      if (authPin !== activePin) {
+        return new Response(buildRunResultHtml("安全验证失败，拒绝保存", false), {
+          status: 403,
+          headers: { "Content-Type": "text/html;charset=UTF-8" }
+        });
+      }
+
+      if (!env.BOT_CONFIG) {
+        return new Response(buildRunResultHtml("未绑定 KV 命名空间 BOT_CONFIG，无法动态保存变量！请在 Cloudflare 绑定 KV。", false), {
+          status: 500,
+          headers: { "Content-Type": "text/html;charset=UTF-8" }
+        });
+      }
+
+      const keysToSave: (keyof BotConfig)[] = [
+        "TMDB_API_KEY",
+        "TG_BOT_TOKEN",
+        "TG_CHAT_ID",
+        "WECOM_WEBHOOK_URL",
+        "HCTI_API_ID",
+        "HCTI_API_KEY",
+        "PIN"
+      ];
+
+      for (const key of keysToSave) {
+        const val = (formData.get(key) || "").toString().trim();
+        await env.BOT_CONFIG.put(key, val);
+      }
+
+      const newPinVal = (formData.get("PIN") || "").toString().trim() || activePin;
+      const message = "💾 配置变量已成功保存至 KV，即时生效！";
+      const response = new Response(buildRunResultHtml(message, true), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      response.headers.append("Set-Cookie", `rmbd_pin=${encodeURIComponent(newPinVal)}; Path=/; Max-Age=2592000; SameSite=Lax; Secure`);
+      return response;
     }
 
     // 路由：动态渲染指定榜单的网页
@@ -1387,7 +1790,7 @@ export default {
       try {
         const urlObj = new URL(request.url);
         const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
-        const htmlContent = await getBankHtml(bank, env, baseUrl);
+        const htmlContent = await getBankHtml(bank, config, baseUrl);
         const response = new Response(htmlContent, {
           headers: {
             "Content-Type": "text/html;charset=UTF-8",
@@ -1414,7 +1817,7 @@ export default {
     // 路由：系统诊断页面
     if (request.method === "GET" && url.pathname === "/status") {
       const results = await Promise.all([
-        Promise.resolve(checkEnvVars(env)), checkTelegram(env), checkTelegramChat(env), checkTmdb(env), checkDouban(), checkWecom(env)
+        Promise.resolve(checkEnvVars(config)), checkTelegram(config), checkTelegramChat(config), checkTmdb(config), checkDouban(), checkWecom(config)
       ]);
       const response = new Response(buildStatusHtml(results, activePin), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
       if (urlPin === activePin) {
@@ -1429,7 +1832,7 @@ export default {
       if (!pin || pin !== activePin) {
         return new Response(buildRunResultHtml("PIN 错误，拒绝访问", false), { status: 403, headers: { "Content-Type": "text/html;charset=UTF-8" } });
       }
-      const result = await sendTestTelegramMessage(env);
+      const result = await sendTestTelegramMessage(config);
       return new Response(`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="3;url=/status">
         <style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#0f1117;color:#e1e4e8;margin:0;}</style></head>
         <body><div style="text-align:center"><h2>${result.ok ? '✅' : '❌'} ${result.detail}</h2><p>3 秒后返回...</p></div></body></html>`,
@@ -1442,7 +1845,7 @@ export default {
       if (!pin || pin !== activePin) {
         return new Response(buildRunResultHtml("PIN 错误，拒绝访问", false), { status: 403, headers: { "Content-Type": "text/html;charset=UTF-8" } });
       }
-      const result = await sendTestWecomMessage(env);
+      const result = await sendTestWecomMessage(config);
       return new Response(`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="3;url=/status">
         <style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#0f1117;color:#e1e4e8;margin:0;}</style></head>
         <body><div style="text-align:center"><h2>${result.ok ? '✅' : '❌'} ${result.detail}</h2><p>3 秒后返回...</p></div></body></html>`,
@@ -1467,7 +1870,11 @@ export default {
         }
 
         if (newPin) {
-          MANUAL_PUSH_PIN = newPin;
+          if (env.BOT_CONFIG) {
+            await env.BOT_CONFIG.put("PIN", newPin);
+          } else {
+            MANUAL_PUSH_PIN = newPin;
+          }
         }
 
         if (changePinOnly) {
@@ -1479,7 +1886,7 @@ export default {
         }
 
         const message = "🚀 推送已触发";
-        ctx.waitUntil(runBotTask(env, request.url).catch(console.error));
+        ctx.waitUntil(runBotTask(config, request.url).catch(console.error));
         
         const nextPin = activePin;
         const response = new Response(buildRunResultHtml(message, true), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
