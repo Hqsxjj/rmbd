@@ -56,8 +56,6 @@ interface Env {
   TG_BOT_TOKEN: string;
   TG_CHAT_ID: string;
   WECOM_WEBHOOK_URL: string;
-  HCTI_API_ID?: string;
-  HCTI_API_KEY?: string;
   PIN?: string;
   BOT_CONFIG?: KVNamespace;
 }
@@ -67,8 +65,6 @@ interface BotConfig {
   TG_BOT_TOKEN: string;
   TG_CHAT_ID: string;
   WECOM_WEBHOOK_URL: string;
-  HCTI_API_ID?: string;
-  HCTI_API_KEY?: string;
   PIN?: string;
 }
 
@@ -78,8 +74,6 @@ async function getMergedConfig(env: Env): Promise<BotConfig> {
     "TG_BOT_TOKEN",
     "TG_CHAT_ID",
     "WECOM_WEBHOOK_URL",
-    "HCTI_API_ID",
-    "HCTI_API_KEY",
     "PIN"
   ];
   const config = {} as any;
@@ -616,101 +610,6 @@ async function getBankHtml(bank: TargetBank, config: BotConfig, baseUrl: string)
   }));
 
   return buildHtml(bank.name, hydratedItems, baseUrl);
-}
-
-interface RenderResult {
-  url: string | null;
-  error?: string;
-}
-
-// 调用 HtmlCssToImage API 渲染 HTML 为图片 URL
-async function renderHtmlToImage(htmlContent: string, apiId: string, apiKey: string, selector?: string): Promise<RenderResult> {
-  try {
-    const url = "https://hcti.io/v1/image";
-    const auth = btoa(`${apiId}:${apiKey}`);
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Basic ${auth}`
-      },
-      body: JSON.stringify({
-        html: htmlContent,
-        selector: selector,
-        format: "jpeg"
-      })
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error(`HCTI API 错误: ${response.status}`, errText);
-      return { url: null, error: `HTTP ${response.status}: ${errText}` };
-    }
-
-    const data: any = await response.json();
-    return { url: data.url || null, error: data.url ? undefined : "API 返回没有图片 URL 字段" };
-  } catch (err: any) {
-    console.error("调用 HCTI API 异常:", err);
-    return { url: null, error: `异常: ${err.message}` };
-  }
-}
-
-// 下载图片，计算 MD5 和 Base64，并发送到企业微信 Webhook
-// 下载图片，计算 MD5 和 Base64，并发送到企业微信 Webhook
-async function processAndSendImage(config: BotConfig, imageUrl: string): Promise<boolean> {
-  try {
-    const res = await fetch(imageUrl);
-    if (!res.ok) {
-      console.error(`下载 HCTI 渲染图片失败: ${res.status}`);
-      return false;
-    }
-
-    const arrayBuffer = await res.arrayBuffer();
-    const sizeInBytes = arrayBuffer.byteLength;
-    const sizeInMB = sizeInBytes / (1024 * 1024);
-    console.log(`已成功下载 HCTI 渲染图片，大小为: ${sizeInMB.toFixed(3)} MB`);
-    if (sizeInBytes > 2 * 1024 * 1024) {
-      console.error(`⚠️ 警告: 下载的图片大小为 ${sizeInMB.toFixed(3)} MB，已超过企业微信 Webhook 的 2MB 限制，可能导致发送失败！`);
-    }
-
-    // 1. 计算 raw binary 数据的 MD5
-    const md5Buffer = await crypto.subtle.digest("MD5", arrayBuffer);
-    const md5Hex = Array.from(new Uint8Array(md5Buffer))
-      .map(b => b.toString(16).padStart(2, "0"))
-      .join("");
-
-    // 2. 使用 nodejs_compat Buffer 编码为 Base64
-    const base64Data = Buffer.from(arrayBuffer).toString("base64");
-
-    // 3. 发送给企业微信
-    const wecomRes = await fetch(config.WECOM_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        msgtype: "image",
-        image: {
-          base64: base64Data,
-          md5: md5Hex
-        }
-      })
-    });
-
-    if (!wecomRes.ok) {
-      console.error("企微发送图片消息失败:", await wecomRes.text());
-      return false;
-    }
-
-    const wecomJson: any = await wecomRes.json();
-    if (wecomJson.errcode !== 0) {
-      console.error(`企微发送图片消息 API 错误: errcode=${wecomJson.errcode}, errmsg=${wecomJson.errmsg}`);
-      return false;
-    }
-
-    return true;
-  } catch (err) {
-    console.error("下载/处理并发送企微图片发生异常:", err);
-    return false;
-  }
 }
 
 // ==========================================
@@ -1608,25 +1507,6 @@ function buildAdminHtml(config: BotConfig, activePin: string): string {
       </div>
     </div>
 
-    <!-- 4. HTML to Image 配置 -->
-    <div class="card">
-      <div class="card-header">
-        <span class="card-icon">📸</span>
-        <h2 class="card-title">HCTI 渲染图片服务 (高级)</h2>
-        <span class="card-desc">可选</span>
-      </div>
-      <div class="form-group">
-        <label for="HCTI_API_ID">HCTI API ID</label>
-        <div class="input-desc">HtmlCssToImage 服务的 API ID，用于把榜单 HTML 高保真渲染为极速加载图片。</div>
-        <input type="text" id="HCTI_API_ID" name="HCTI_API_ID" value="${config.HCTI_API_ID || ''}" placeholder="例如: 01KRT1..." autocomplete="off" />
-      </div>
-      <div class="form-group">
-        <label for="HCTI_API_KEY">HCTI API Key</label>
-        <div class="input-desc">HtmlCssToImage 服务的 Secret Key。</div>
-        <input type="text" id="HCTI_API_KEY" name="HCTI_API_KEY" value="${config.HCTI_API_KEY || ''}" placeholder="例如: 019e341e-3825-..." autocomplete="off" />
-      </div>
-    </div>
-
     <!-- 5. 安全 PIN 码 -->
     <div class="card">
       <div class="card-header">
@@ -1750,8 +1630,6 @@ export default {
         "TG_BOT_TOKEN",
         "TG_CHAT_ID",
         "WECOM_WEBHOOK_URL",
-        "HCTI_API_ID",
-        "HCTI_API_KEY",
         "PIN"
       ];
 

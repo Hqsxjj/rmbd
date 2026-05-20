@@ -21,10 +21,7 @@
 	// 必填: TMDB_API_KEY, TG_BOT_TOKEN, TG_CHAT_ID
 	// 可选: WECOM_WEBHOOK_URL (企业微信机器人 Webhook，不填则跳过企业微信推送)
 	// ==========================================
-	"vars": {
-		"HCTI_API_ID": "01KRT1WE15XT6X6D87N16Q8CKH",
-		"HCTI_API_KEY": "019e341e-3825-7962-adac-9e160818f301"
-	},
+	"vars": {},
 	"kv_namespaces": [
 		{
 			"binding": "BOT_CONFIG",
