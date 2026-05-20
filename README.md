@@ -56,12 +56,6 @@ graph TD
         E2[企业微信: 长图与文本双重组合发送]
     end
     
-    E2 --> F{获取 KV/ENV 的 HCTI 密钥}
-    F -- 已配置 --> G[异步调用 HCTI 渲染为高清 PNG 长图]
-    G --> H[计算二进制图片 MD5 与 Base64 编码]
-    H --> I[发送高清长图 + 网页直达链接卡片]
-    
-    F -- 未配置/渲染异常 --> J[安全降级: 发送富文本 Markdown 卡片]
 ```
 
 ---
@@ -103,14 +97,8 @@ graph TD
 | `TG_CHAT_ID` | Telegram 目标 Chat ID | 接受消息的频道用户名（如 `@my_channel`）或个人数字 Chat ID |
 | `WECOM_WEBHOOK_URL`| 企业微信群机器人 Webhook | 在企微群组中右键添加“群机器人”，获取其 Webhook URL。为空则不推送企微。 |
 
-### 2. 高清长图渲染服务（可选）
 
-| 变量名 | 说明 | 获取与获取路径 |
-| :--- | :--- | :--- |
-| `HCTI_API_ID` | HtmlCssToImage API ID | 注册 [HtmlCssToImage](https://htmlcsstoimage.com/) 免费获得 |
-| `HCTI_API_KEY` | HtmlCssToImage API Key | 注册 [HtmlCssToImage](https://htmlcsstoimage.com/) 免费获得 |
-
-### 3. 系统口令安全保护
+### 2. 系统口令安全保护
 
 | 变量名 | 说明 | 初始默认值 |
 | :--- | :--- | :--- |
