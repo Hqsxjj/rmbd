@@ -458,7 +458,7 @@ function buildHtml(bankName: string, items: BankItem[], baseUrl: string): string
   });
 
   const topItem = items[0];
-  let ogImage = 'https://placehold.co/1200x630/cccccc/ffffff?text=RMBD';
+  let ogImage = 'https://placehold.co/1200x630/cccccc/ffffff?text=Recommendations';
   if (topItem) {
     let topPoster = topItem.tmdbDetails?.poster || topItem.douban_poster;
     if (topPoster) {
@@ -477,13 +477,13 @@ function buildHtml(bankName: string, items: BankItem[], baseUrl: string): string
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="no-referrer">
-  <title>${bankName} - RMBD 每日推荐</title>
-  <meta property="og:title" content="${bankName} - RMBD 每日推荐">
+  <title>${bankName} - 每日推荐</title>
+  <meta property="og:title" content="${bankName} - 每日推荐">
   <meta property="og:description" content="${ogDesc}">
   <meta property="og:image" content="${ogImage}">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="${bankName} - RMBD 每日推荐">
+  <meta name="twitter:title" content="${bankName} - 每日推荐">
   <meta name="twitter:description" content="${ogDesc}">
   <meta name="twitter:image" content="${ogImage}">
   <style>
@@ -527,7 +527,7 @@ function buildHtml(bankName: string, items: BankItem[], baseUrl: string): string
     </div>
     ${cardsHtml}
     <div style="text-align:center; padding: 20px; color: #888; font-size: 14px;">
-      Powered by RMBD Cloudflare Worker
+      Powered by Cloudflare Worker
     </div>
   </div>
 </body>
@@ -684,7 +684,7 @@ async function sendSummaryToTelegram(env: Env, baseUrl: string): Promise<void> {
   const activePin = env.PIN || MANUAL_PUSH_PIN;
   
   // 1. 发送开场白
-  const introText = `🎬 <b>RMBD 每日影视榜单已更新</b> (${now})\n\n正在为您推送 ${TARGET_BANKS.length} 个精选榜单...`;
+  const introText = `🎬 <b>每日影视榜单已更新</b> (${now})\n\n正在为您推送 ${TARGET_BANKS.length} 个精选榜单...`;
   try {
     await fetch(tgUrl, {
       method: "POST",
@@ -763,7 +763,7 @@ async function sendSummaryToWecom(env: Env, baseUrl: string): Promise<void> {
   // 发送每一批
   for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
     const batch = batches[batchIdx];
-    let content = `## 🎬 RMBD 每日影视榜单 (${batchIdx + 1}/${batches.length}) · ${now}\n`;
+    let content = `## 🎬 每日影视榜单 (${batchIdx + 1}/${batches.length}) · ${now}\n`;
     if (batchIdx === 0) {
       content += `> 今日精选 **${TARGET_BANKS.length}** 个影视榜单已全部更新！点击链接可直接查看完整网页版（含海报、演员及详细简介）👇\n\n`;
     } else {
@@ -787,7 +787,7 @@ async function sendSummaryToWecom(env: Env, baseUrl: string): Promise<void> {
         top3Text = `> ⚠️ 榜单数据暂不可用`;
       }
 
-      content += `### [📊 ${bank.name}](${targetUrl})\n${top3Text}\n\n`;
+      content += `**[📊 ${bank.name}](${targetUrl})**\n${top3Text}\n\n`;
     }
 
     try {
@@ -971,7 +971,7 @@ function buildStatusHtml(results: CheckResult[], activePin: string): string {
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>RMBD 控制台</title>
+<title>控制台</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:#070a14;color:#e2e8f0;min-height:100vh;padding:32px 16px}
@@ -1017,7 +1017,7 @@ button.btn:active,a.btn:active{transform:scale(0.97)}
 <body>
 <div class="wrap">
   <div class="header">
-    <h1>🎬 RMBD 控制台</h1>
+    <h1>🎬 控制台</h1>
     <p>影视榜单推送机器人 · 系统诊断与控制</p>
     <div class="badge"><span class="badge-dot"></span>${passCount} / ${totalCount} 服务正常</div>
   </div>
@@ -1099,7 +1099,7 @@ async function sendTestTelegramMessage(env: Env): Promise<{ ok: boolean; detail:
   try {
     const res = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: env.TG_CHAT_ID, text: `✅ <b>RMBD 测试成功</b>\n🤖 消息推送通道畅通！`, parse_mode: "HTML" })
+      body: JSON.stringify({ chat_id: env.TG_CHAT_ID, text: `✅ <b>测试成功</b>\n🤖 消息推送通道畅通！`, parse_mode: "HTML" })
     });
     const json: any = await res.json();
     return json.ok ? { ok: true, detail: "发送成功" } : { ok: false, detail: json.description };
@@ -1114,7 +1114,7 @@ async function sendTestWecomMessage(env: Env): Promise<{ ok: boolean; detail: st
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         msgtype: "markdown",
-        markdown: { content: `## ✅ RMBD 企业微信测试成功\n> 💼 消息推送通道畅通！网页版预览链接已全部打通。` }
+        markdown: { content: `## ✅ 企业微信测试成功\n> 💼 消息推送通道畅通！网页版预览链接已全部打通。` }
       })
     });
     const json: any = await res.json();
@@ -1128,7 +1128,7 @@ function buildLockScreenHtml(errorMsg: string = ""): string {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>安全验证 - RMBD</title>
+<title>安全验证</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
