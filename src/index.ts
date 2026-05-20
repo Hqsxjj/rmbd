@@ -341,9 +341,16 @@ function buildHtml(bankName: string, items: BankItem[]): string {
     
     let posterSrc = item.tmdbDetails?.poster;
     if (!posterSrc && item.douban_poster) {
-      posterSrc = item.douban_poster; // 依赖 <meta name="referrer" content="no-referrer"> 直接加载
+      posterSrc = item.douban_poster;
     }
-    if (!posterSrc) {
+    if (posterSrc) {
+      if (posterSrc.startsWith("//")) {
+        posterSrc = "https:" + posterSrc;
+      }
+      if (!posterSrc.includes("wsrv.nl")) {
+        posterSrc = `https://wsrv.nl/?url=${encodeURIComponent(posterSrc)}&default=https://placehold.co/140x200/cccccc/ffffff?text=No+Poster`;
+      }
+    } else {
       posterSrc = 'https://placehold.co/140x200/cccccc/ffffff?text=No+Poster';
     }
 
@@ -384,10 +391,12 @@ function buildHtml(bankName: string, items: BankItem[]): string {
   const topItem = items[0];
   let ogImage = 'https://placehold.co/1200x630/cccccc/ffffff?text=RMBD';
   if (topItem) {
-    if (topItem.tmdbDetails?.poster) {
-      ogImage = topItem.tmdbDetails.poster;
-    } else if (topItem.douban_poster) {
-      ogImage = `https://wsrv.nl/?url=${encodeURIComponent(topItem.douban_poster)}`;
+    let topPoster = topItem.tmdbDetails?.poster || topItem.douban_poster;
+    if (topPoster) {
+      if (topPoster.startsWith("//")) {
+        topPoster = "https:" + topPoster;
+      }
+      ogImage = `https://wsrv.nl/?url=${encodeURIComponent(topPoster)}&w=1200&h=630&fit=cover&default=https://placehold.co/1200x630/cccccc/ffffff?text=RMBD`;
     }
   }
   const top3Names = items.slice(0, 3).map(i => i.title || i.name).filter(Boolean).join(' / ');
