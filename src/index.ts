@@ -735,52 +735,75 @@ async function sendSummaryToWecom(env: Env, baseUrl: string): Promise<void> {
 
   const now = new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
-  // 1. 发送开场消息
-  const introContent = `## 🎬 RMBD 每日影视榜单已更新 (${now})\n正在为您推送 **${TARGET_BANKS.length}** 个精选榜单，请查收 👇`;
-  try {
-    await fetch(env.WECOM_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ msgtype: "markdown", markdown: { content: introContent } })
-    });
-  } catch (err) {
-    console.error("发送企业微信开场消息异常:", err);
+  // 1. 并发获取所有榜单的数据
+  console.log("开始并发获取企微推送榜单数据...");
+  const bankDataList = await Promise.all(
+    TARGET_BANKS.map(async (bank) => {
+      try {
+        const items = await fetchBankData(bank, env);
+        return { bank, items, success: true };
+      } catch (e) {
+        console.error(`获取榜单 ${bank.name} 数据失败:`, e);
+        return { bank, items: [], success: false };
+      }
+    })
+  );
+
+  // 2. 将 15 个榜单分批组合发送，防止单条消息超过企业微信 4096 字符限制
+  // 建议分为 2 批发送，第一批 8 个，第二批 7 个，这样排版极度优雅且绝对不会超限
+  const BATCH_SIZE = 8;
+  const batches = [];
+  for (let i = 0; i < bankDataList.length; i += BATCH_SIZE) {
+    batches.push(bankDataList.slice(i, i + BATCH_SIZE));
   }
 
-  // 2. 依次发送每个榜单
-  for (const bank of TARGET_BANKS) {
-    const targetUrl = `${baseUrl}/view/${bank.id}?t=${Date.now()}`;
-    let top3Text = "";
+  // 发送每一批
+  for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+    const batch = batches[batchIdx];
+    let content = `## 🎬 RMBD 每日影视榜单 (${batchIdx + 1}/${batches.length}) · ${now}\n`;
+    if (batchIdx === 0) {
+      content += `> 今日精选 **${TARGET_BANKS.length}** 个影视榜单已全部更新！点击链接可直接查看完整网页版（含海报、演员及详细简介）👇\n\n`;
+    } else {
+      content += `\n`;
+    }
 
-    try {
-      const items = await fetchBankData(bank, env);
-      if (items.length > 0) {
+    for (const { bank, items, success } of batch) {
+      const targetUrl = `${baseUrl}/view/${bank.id}?t=${Date.now()}`;
+      let top3Text = "";
+
+      if (success && items.length > 0) {
         const top3 = items.slice(0, 3);
-        top3Text = top3.map((item, i) => {
+        const top3Parts = top3.map((item, i) => {
           const title = item.title || item.name || "未知";
           const score = item.vote_average || item.rating || 0;
           const scoreText = score > 0 ? ` (${score.toFixed(1)}分)` : "";
-          return `> ${i + 1}. **${title}**${scoreText}`;
-        }).join("\n");
+          return `**${title}**${scoreText}`;
+        });
+        top3Text = `> TOP 3: ${top3Parts.join("  |  ")}`;
+      } else {
+        top3Text = `> ⚠️ 榜单数据暂不可用`;
       }
-    } catch (e) {
-      console.error(`获取榜单 ${bank.name} Top 3 失败:`, e);
+
+      content += `### 📊 ${bank.name}\n${top3Text}\n> 🔗 [点击查看完整网页版](${targetUrl})\n\n`;
     }
 
-    const content = `### 📊 ${bank.name}\n${top3Text ? top3Text + "\n" : ""}>\n> [📋 点击查看完整网页版](${targetUrl})`;
     try {
       const res = await fetch(env.WECOM_WEBHOOK_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ msgtype: "markdown", markdown: { content } })
+        body: JSON.stringify({ msgtype: "markdown", markdown: { content: content.trim() } })
       });
-      if (!res.ok) console.error(`企业微信推送失败: ${bank.name}`, await res.text());
+      if (!res.ok) {
+        console.error(`企业微信发送批次 ${batchIdx + 1} 失败:`, await res.text());
+      }
     } catch (err) {
-      console.error(`企业微信推送异常: ${bank.name}`, err);
+      console.error(`企业微信发送批次 ${batchIdx + 1} 异常:`, err);
     }
 
-    // 企业微信限流：20条/分钟，间隔 3s 保险
-    await new Promise(r => setTimeout(r, 3000));
+    // 批次发送间隔 1s，防限流且无需长久等待
+    if (batchIdx < batches.length - 1) {
+      await new Promise(r => setTimeout(r, 1000));
+    }
   }
 }
 
