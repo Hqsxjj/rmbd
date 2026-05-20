@@ -200,7 +200,7 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
   } else if (bank.source === "douban") {
     let url = "";
     if (bank.collection_id) {
-      url = `https://m.douban.com/rexxar/api/v2/subject_collection/${bank.collection_id}/items?start=0&count=20&apikey=0ac9c5dfb7e2434199558a741fd9ab22`;
+      url = `https://m.douban.com/rexxar/api/v2/subject_collection/${bank.collection_id}/items?start=0&count=20&for_mobile=1`;
     } else if (bank.tag) {
       const sortParam = bank.sort || "recommend";
       url = `https://movie.douban.com/j/search_subjects?type=${bank.type}&tag=${encodeURIComponent(bank.tag)}&sort=${sortParam}&page_limit=20&page_start=0`;
@@ -513,7 +513,8 @@ async function renderHtmlToImage(htmlContent: string, apiId: string, apiKey: str
       },
       body: JSON.stringify({
         html: htmlContent,
-        viewport_width: 800
+        viewport_width: 800,
+        format: "jpeg"
       })
     });
 
@@ -540,6 +541,12 @@ async function processAndSendImage(env: Env, imageUrl: string): Promise<boolean>
     }
 
     const arrayBuffer = await res.arrayBuffer();
+    const sizeInBytes = arrayBuffer.byteLength;
+    const sizeInMB = sizeInBytes / (1024 * 1024);
+    console.log(`已成功下载 HCTI 渲染图片，大小为: ${sizeInMB.toFixed(3)} MB`);
+    if (sizeInBytes > 2 * 1024 * 1024) {
+      console.error(`⚠️ 警告: 下载的图片大小为 ${sizeInMB.toFixed(3)} MB，已超过企业微信 Webhook 的 2MB 限制，可能导致发送失败！`);
+    }
 
     // 1. 计算 raw binary 数据的 MD5
     const md5Buffer = await crypto.subtle.digest("MD5", arrayBuffer);
@@ -799,7 +806,7 @@ async function checkTmdb(env: Env): Promise<CheckResult> {
 async function checkDouban(): Promise<CheckResult> {
   const start = Date.now();
   try {
-    const res = await fetch("https://m.douban.com/rexxar/api/v2/subject_collection/movie_weekly_best/items?start=0&count=1&apikey=0ac9c5dfb7e2434199558a741fd9ab22", {
+    const res = await fetch("https://m.douban.com/rexxar/api/v2/subject_collection/movie_weekly_best/items?start=0&count=1&for_mobile=1", {
       headers: {
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
         "Referer": "https://m.douban.com/subject_collection/movie_weekly_best"
