@@ -500,8 +500,13 @@ async function getBankHtml(bank: TargetBank, env: Env): Promise<string> {
   return buildHtml(bank.name, hydratedItems);
 }
 
+interface RenderResult {
+  url: string | null;
+  error?: string;
+}
+
 // 调用 HtmlCssToImage API 渲染 HTML 为图片 URL
-async function renderHtmlToImage(htmlContent: string, apiId: string, apiKey: string): Promise<string | null> {
+async function renderHtmlToImage(htmlContent: string, apiId: string, apiKey: string): Promise<RenderResult> {
   try {
     const url = "https://hcti.io/v1/image";
     const auth = btoa(`${apiId}:${apiKey}`);
@@ -519,15 +524,16 @@ async function renderHtmlToImage(htmlContent: string, apiId: string, apiKey: str
     });
 
     if (!response.ok) {
-      console.error(`HCTI API 错误: ${response.status}`, await response.text());
-      return null;
+      const errText = await response.text();
+      console.error(`HCTI API 错误: ${response.status}`, errText);
+      return { url: null, error: `HTTP ${response.status}: ${errText}` };
     }
 
     const data: any = await response.json();
-    return data.url || null;
-  } catch (err) {
+    return { url: data.url || null, error: data.url ? undefined : "API 返回没有图片 URL 字段" };
+  } catch (err: any) {
     console.error("调用 HCTI API 异常:", err);
-    return null;
+    return { url: null, error: `异常: ${err.message}` };
   }
 }
 
@@ -673,9 +679,11 @@ async function sendSummaryToWecom(env: Env, baseUrl: string): Promise<void> {
       console.log(`尝试为榜单渲染长图: ${bank.name}`);
       try {
         const htmlContent = await getBankHtml(bank, env);
-        const imageUrl = await renderHtmlToImage(htmlContent, env.HCTI_API_ID!, env.HCTI_API_KEY!);
-        if (imageUrl) {
-          imageSent = await processAndSendImage(env, imageUrl);
+        const renderRes = await renderHtmlToImage(htmlContent, env.HCTI_API_ID!, env.HCTI_API_KEY!);
+        if (renderRes.url) {
+          imageSent = await processAndSendImage(env, renderRes.url);
+        } else {
+          console.error(`为榜单 ${bank.name} 渲染图片失败: ${renderRes.error}`);
         }
       } catch (err) {
         console.error(`为榜单 ${bank.name} 渲染图片或发送失败，将退回到文本链接形式:`, err);
@@ -1018,14 +1026,14 @@ async function sendTestWecomMessage(env: Env): Promise<{ ok: boolean; detail: st
         </html>
       `;
 
-      const imageUrl = await renderHtmlToImage(testHtml, env.HCTI_API_ID!, env.HCTI_API_KEY!);
-      if (imageUrl) {
-        imageSent = await processAndSendImage(env, imageUrl);
+      const renderRes = await renderHtmlToImage(testHtml, env.HCTI_API_ID!, env.HCTI_API_KEY!);
+      if (renderRes.url) {
+        imageSent = await processAndSendImage(env, renderRes.url);
         if (!imageSent) {
           imgError = "MD5/Base64 处理或企业微信群接口返回错误";
         }
       } else {
-        imgError = "HCTI 接口返回空图片 URL，请检查 API ID 和 Key 额度或权限";
+        imgError = `HCTI 接口渲染失败: ${renderRes.error || "未知原因"}`;
       }
     }
 
