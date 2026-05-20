@@ -19,11 +19,11 @@ const TARGET_BANKS: TargetBank[] = [
   { id: "tmdb_movie_popular", name: "🎥 TMDB 热门电影", source: "tmdb", path: "/movie/popular", type: "movie" },
   { id: "tmdb_movie_now_playing", name: "🍿 TMDB 正在热映", source: "tmdb", path: "/movie/now_playing", type: "movie" },
   { id: "tmdb_tv_popular", name: "📺 TMDB 热门剧集", source: "tmdb", path: "/tv/popular", type: "tv" },
-  { id: "douban_movie_hot", name: "🔥 豆瓣热门电影", source: "douban", type: "movie", tag: "热门" },
-  { id: "douban_movie_latest", name: "🆕 豆瓣最新电影", source: "douban", type: "movie", tag: "最新" },
+  { id: "douban_movie_hot", name: "🔥 豆瓣热门电影", source: "douban", type: "movie", collection_id: "movie_hot_gaia" },
+  { id: "douban_movie_latest", name: "🆕 豆瓣最新电影", source: "douban", type: "movie", collection_id: "movie_latest" },
   { id: "maoyan_movie_hot", name: "🐱 猫眼热映电影", source: "maoyan", type: "movie" },
-  { id: "douban_tv_hot", name: "📡 豆瓣热门剧集", source: "douban", type: "tv", tag: "热门" },
-  { id: "douban_tv_latest", name: "✨ 豆瓣最新剧集", source: "douban", type: "tv", tag: "热门", sort: "time" },
+  { id: "douban_tv_hot", name: "📡 豆瓣热门剧集", source: "douban", type: "tv", collection_id: "tv_hot" },
+  { id: "douban_tv_latest", name: "✨ 豆瓣最新剧集", source: "douban", type: "tv", collection_id: "tv_domestic" },
   { id: "douban_tv_realtime_hot", name: "📈 豆瓣实时热门剧集", source: "douban", type: "tv", collection_id: "tv_real_time_hotest" },
   { id: "douban_tv_chinese_best", name: "📺 豆瓣华语口碑剧集", source: "douban", type: "tv", collection_id: "tv_chinese_best_weekly" },
   { id: "douban_tv_global_best", name: "🌍 豆瓣全球口碑剧集", source: "douban", type: "tv", collection_id: "tv_global_best_weekly" },
@@ -979,20 +979,72 @@ async function sendTestTelegramMessage(env: Env): Promise<{ ok: boolean; detail:
   } catch (e: any) { return { ok: false, detail: e.message }; }
 }
 
-// 发送企业微信测试消息
+// 发送企业微信测试消息 (如果配置了 HCTI，则同时发送渲染图测试)
 async function sendTestWecomMessage(env: Env): Promise<{ ok: boolean; detail: string }> {
   if (!env.WECOM_WEBHOOK_URL) return { ok: false, detail: "未配置 WECOM_WEBHOOK_URL" };
   try {
-    const res = await fetch(env.WECOM_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        msgtype: "markdown",
-        markdown: { content: `## ✅ RMBD 企业微信测试成功\n> 💼 消息推送通道畅通！` }
-      })
-    });
-    const json: any = await res.json();
-    return json.errcode === 0 ? { ok: true, detail: "发送成功" } : { ok: false, detail: `errcode=${json.errcode}: ${json.errmsg}` };
+    const hasHcti = !!(env.HCTI_API_ID && env.HCTI_API_KEY);
+    let imageSent = false;
+    let imgError = "";
+
+    if (hasHcti) {
+      const testHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            body { background: #070a14; color: #e2e8f0; font-family: "PingFang SC", "Microsoft YaHei", sans-serif; padding: 30px; text-align: center; margin: 0; }
+            .card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 30px; max-width: 400px; margin: 0 auto; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+            h1 { font-size: 24px; color: #a78bfa; margin-bottom: 10px; font-weight: bold; }
+            p { font-size: 14px; color: #94a3b8; margin-bottom: 20px; line-height: 1.6; }
+            .badge { background: #34d399; color: #070a14; padding: 6px 16px; border-radius: 20px; font-weight: bold; display: inline-block; font-size: 12px; letter-spacing: 1px; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h1>🎬 RMBD 企微长图渲染测试</h1>
+            <p>如果您收到了这张精美卡片长图，说明 HCTI 高清渲染服务与企业微信 Webhook 大图推送通道已全部调试成功！</p>
+            <div class="badge">TEST SUCCESS</div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      const imageUrl = await renderHtmlToImage(testHtml, env.HCTI_API_ID!, env.HCTI_API_KEY!);
+      if (imageUrl) {
+        imageSent = await processAndSendImage(env, imageUrl);
+        if (!imageSent) {
+          imgError = "MD5/Base64 处理或企业微信群接口返回错误";
+        }
+      } else {
+        imgError = "HCTI 接口返回空图片 URL，请检查 API ID 和 Key 额度或权限";
+      }
+    }
+
+    if (imageSent) {
+      await fetch(env.WECOM_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          msgtype: "markdown",
+          markdown: { content: `## ✅ RMBD 企业微信测试成功\n> 🎨 高清长图与后续链接已同步成功推送！` }
+        })
+      });
+      return { ok: true, detail: "图片与文字测试消息均发送成功" };
+    } else {
+      const detailStr = hasHcti ? ` (图片失败: ${imgError})` : "";
+      const res = await fetch(env.WECOM_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          msgtype: "markdown",
+          markdown: { content: `## ✅ RMBD 企业微信测试成功\n> 💼 消息推送通道畅通！${detailStr}` }
+        })
+      });
+      const json: any = await res.json();
+      return json.errcode === 0 ? { ok: true, detail: "已成功降级发送文字测试消息" + detailStr } : { ok: false, detail: `errcode=${json.errcode}: ${json.errmsg}` };
+    }
   } catch (e: any) { return { ok: false, detail: e.message }; }
 }
 
