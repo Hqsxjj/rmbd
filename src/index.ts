@@ -200,7 +200,7 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
   } else if (bank.source === "douban") {
     let url = "";
     if (bank.collection_id) {
-      url = `https://m.douban.com/rexxar/api/v2/subject_collection/${bank.collection_id}/items?start=0&count=20`;
+      url = `https://m.douban.com/rexxar/api/v2/subject_collection/${bank.collection_id}/items?start=0&count=20&apikey=0ac9c5dfb7e2434199558a741fd9ab22`;
     } else if (bank.tag) {
       const sortParam = bank.sort || "recommend";
       url = `https://movie.douban.com/j/search_subjects?type=${bank.type}&tag=${encodeURIComponent(bank.tag)}&sort=${sortParam}&page_limit=20&page_start=0`;
@@ -208,7 +208,7 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
 
     const res = await fetch(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
         "Referer": "https://m.douban.com/subject_collection/" + (bank.collection_id || "")
       },
       cf: { cacheTtl: 3600, cacheEverything: true }
@@ -799,8 +799,11 @@ async function checkTmdb(env: Env): Promise<CheckResult> {
 async function checkDouban(): Promise<CheckResult> {
   const start = Date.now();
   try {
-    const res = await fetch("https://movie.douban.com/j/search_subjects?type=movie&tag=%E7%83%AD%E9%97%A8&page_limit=1&page_start=0", {
-      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36" }
+    const res = await fetch("https://m.douban.com/rexxar/api/v2/subject_collection/movie_weekly_best/items?start=0&count=1&apikey=0ac9c5dfb7e2434199558a741fd9ab22", {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+        "Referer": "https://m.douban.com/subject_collection/movie_weekly_best"
+      }
     });
     if (res.ok) return { name: "豆瓣 API", icon: "🟢", ok: true, detail: `连接正常`, latency: Date.now() - start };
     return { name: "豆瓣 API", icon: "🟢", ok: false, detail: `HTTP ${res.status}`, latency: Date.now() - start };
