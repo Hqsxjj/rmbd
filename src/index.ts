@@ -58,6 +58,7 @@ interface Env {
   WECOM_WEBHOOK_URL: string;
   HCTI_API_ID?: string;
   HCTI_API_KEY?: string;
+  PIN?: string;
 }
 
 interface TmdbDetails {
@@ -680,6 +681,7 @@ async function processAndSendImage(env: Env, imageUrl: string): Promise<boolean>
 async function sendSummaryToTelegram(env: Env, baseUrl: string): Promise<void> {
   const tgUrl = `https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`;
   const now = new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' });
+  const activePin = env.PIN || MANUAL_PUSH_PIN;
   
   // 1. 发送开场白
   const introText = `🎬 <b>RMBD 每日影视榜单已更新</b> (${now})\n\n正在为您推送 ${TARGET_BANKS.length} 个精选榜单...`;
@@ -696,7 +698,7 @@ async function sendSummaryToTelegram(env: Env, baseUrl: string): Promise<void> {
   // 2. 依次发送每个榜单，允许预览
   for (let index = 0; index < TARGET_BANKS.length; index++) {
     const bank = TARGET_BANKS[index];
-    const targetUrl = `${baseUrl}/view/${bank.id}?t=${Date.now()}`;
+    const targetUrl = `${baseUrl}/view/${bank.id}?pin=${encodeURIComponent(activePin)}&t=${Date.now()}`;
     const text = `👉 <b><a href="${targetUrl}">${bank.name}</a></b>`;
     
     try {
@@ -734,6 +736,7 @@ async function sendSummaryToWecom(env: Env, baseUrl: string): Promise<void> {
   }
 
   const now = new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' });
+  const activePin = env.PIN || MANUAL_PUSH_PIN;
 
   // 1. 并发获取所有榜单的数据
   console.log("开始并发获取企微推送榜单数据...");
@@ -768,7 +771,7 @@ async function sendSummaryToWecom(env: Env, baseUrl: string): Promise<void> {
     }
 
     for (const { bank, items, success } of batch) {
-      const targetUrl = `${baseUrl}/view/${bank.id}?t=${Date.now()}`;
+      const targetUrl = `${baseUrl}/view/${bank.id}?pin=${encodeURIComponent(activePin)}&t=${Date.now()}`;
       let top3Text = "";
 
       if (success && items.length > 0) {
@@ -940,7 +943,7 @@ async function checkWecom(env: Env): Promise<CheckResult> {
   }
 }
 
-function buildStatusHtml(results: CheckResult[]): string {
+function buildStatusHtml(results: CheckResult[], activePin: string): string {
   const passCount = results.filter(r => r.ok).length;
   const totalCount = results.length;
   const allPass = passCount === totalCount;
@@ -1032,7 +1035,7 @@ button.btn:active,a.btn:active{transform:scale(0.97)}
   <div class="panel">
     <div class="panel-title">🔐 PIN 验证</div>
     <div class="pin-wrap">
-      <input id="pinVal" type="password" placeholder="输入 PIN 码以执行操作" autocomplete="off" />
+      <input id="pinVal" type="password" placeholder="输入 PIN 码以执行操作" autocomplete="off" value="${activePin}" />
     </div>
     <div class="toggle-newpin" onclick="document.getElementById('npw').classList.toggle('show');this.textContent=document.getElementById('npw').classList.contains('show')?'− 取消修改 PIN':'＋ 同时修改 PIN 码'">＋ 同时修改 PIN 码</div>
     <div class="newpin-wrap" id="npw">
@@ -1096,12 +1099,187 @@ async function sendTestWecomMessage(env: Env): Promise<{ ok: boolean; detail: st
   } catch (e: any) { return { ok: false, detail: e.message }; }
 }
 
+function buildLockScreenHtml(errorMsg: string = ""): string {
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>安全验证 - RMBD</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #070a14;
+    color: #e2e8f0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    overflow: hidden;
+  }
+  .bg-glow {
+    position: absolute;
+    width: 600px;
+    height: 600px;
+    background: radial-gradient(circle, rgba(139, 92, 246, 0.15) 0%, rgba(0, 0, 0, 0) 70%);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1;
+    pointer-events: none;
+  }
+  .card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-radius: 24px;
+    width: 100%;
+    max-width: 400px;
+    padding: 40px 30px;
+    text-align: center;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+    z-index: 10;
+    animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .icon-wrapper {
+    width: 72px;
+    height: 72px;
+    background: rgba(139, 92, 246, 0.1);
+    border: 1px solid rgba(139, 92, 246, 0.2);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 24px;
+    box-shadow: 0 0 20px rgba(139, 92, 246, 0.2);
+  }
+  .icon-wrapper svg {
+    width: 32px;
+    height: 32px;
+    fill: #a78bfa;
+  }
+  h1 {
+    font-size: 24px;
+    font-weight: 800;
+    margin-bottom: 8px;
+    background: linear-gradient(135deg, #a78bfa, #60a5fa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  p {
+    font-size: 14px;
+    color: #64748b;
+    margin-bottom: 30px;
+    line-height: 1.5;
+  }
+  .input-wrap {
+    position: relative;
+    margin-bottom: 16px;
+  }
+  input {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 14px 16px;
+    color: #fff;
+    font-size: 18px;
+    outline: none;
+    text-align: center;
+    font-family: monospace;
+    letter-spacing: 6px;
+    transition: all 0.3s ease;
+  }
+  input:focus {
+    border-color: rgba(139, 92, 246, 0.5);
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+  }
+  input::placeholder {
+    letter-spacing: 0;
+    font-family: inherit;
+    font-size: 14px;
+    color: #475569;
+  }
+  button {
+    width: 100%;
+    background: linear-gradient(135deg, #7c3aed, #2563eb);
+    border: none;
+    border-radius: 12px;
+    padding: 14px;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 15px rgba(124, 58, 237, 0.3);
+  }
+  button:hover {
+    transform: translateY(-2px);
+    filter: brightness(1.1);
+    box-shadow: 0 6px 20px rgba(124, 58, 237, 0.4);
+  }
+  button:active {
+    transform: scale(0.98);
+  }
+  .error-msg {
+    color: #f87171;
+    font-size: 13px;
+    margin-top: 12px;
+    font-weight: 500;
+    animation: shake 0.4s ease;
+  }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-6px); }
+    75% { transform: translateX(6px); }
+  }
+</style>
+</head>
+<body>
+<div class="bg-glow"></div>
+<div class="card">
+  <div class="icon-wrapper">
+    <svg viewBox="0 0 24 24">
+      <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/>
+    </svg>
+  </div>
+  <h1>访问受限</h1>
+  <p>该页面属于私有资源，请提供正确的安全 PIN 码以继续访问。</p>
+  <div class="input-wrap">
+    <input type="password" id="pinInput" placeholder="输入 4 位安全 PIN 码" autocomplete="off" onkeydown="if(event.key==='Enter')verify()" />
+  </div>
+  <button onclick="verify()">验证并访问</button>
+  ${errorMsg ? `<div class="error-msg">${errorMsg}</div>` : ""}
+</div>
+<script>
+  function verify() {
+    const val = document.getElementById("pinInput").value.trim();
+    if (!val) {
+      document.getElementById("pinInput").focus();
+      return;
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set("pin", val);
+    window.location.href = url.toString();
+  }
+  document.getElementById("pinInput").focus();
+</script>
+</body>
+</html>`;
+}
+
 // ==========================================
 // Worker 导出
 // ==========================================
 export default {
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    // 默认提供一个伪造的基础 URL 供定时任务使用
     ctx.waitUntil(runBotTask(env, "https://rmbd.workers.dev"));
   },
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -1129,12 +1307,37 @@ export default {
         const response = new Response(imgRes.body, {
           headers: {
             "Content-Type": imgRes.headers.get("Content-Type") || "image/jpeg",
-            "Cache-Control": "public, max-age=604800, s-maxage=604800" // 强缓存 7 天
+            "Cache-Control": "public, max-age=604800, s-maxage=604800"
           }
         });
         return response;
       } catch (err: any) {
         return new Response(`Error proxying image: ${err.message}`, { status: 500 });
+      }
+    }
+
+    const activePin = env.PIN || MANUAL_PUSH_PIN;
+
+    // 从 Cookie 中获取 PIN
+    const cookieHeader = request.headers.get("Cookie") || "";
+    const cookieMatch = cookieHeader.match(/rmbd_pin=([^;]+)/);
+    const cookiePin = cookieMatch ? decodeURIComponent(cookieMatch[1]).trim() : "";
+
+    // 从 Query 参数中获取 PIN
+    const urlPin = url.searchParams.get("pin") || "";
+
+    // 校验身份
+    const isAuthed = (urlPin === activePin) || (cookiePin === activePin);
+    const isWrongPin = urlPin !== "" && urlPin !== activePin;
+
+    // 1. GET 安全拦截
+    if (request.method === "GET") {
+      if (!isAuthed) {
+        const errorMsg = isWrongPin ? "⚠️ PIN 码输入错误，请重新输入" : "";
+        return new Response(buildLockScreenHtml(errorMsg), {
+          status: isWrongPin ? 403 : 401,
+          headers: { "Content-Type": "text/html;charset=UTF-8" }
+        });
       }
     }
 
@@ -1169,6 +1372,11 @@ export default {
           }
         });
 
+        // 写入安全 Cookie，方便后续流畅访问
+        if (urlPin === activePin) {
+          response.headers.append("Set-Cookie", `rmbd_pin=${encodeURIComponent(activePin)}; Path=/; Max-Age=2592000; SameSite=Lax; Secure`);
+        }
+
         if (!nocache) {
           ctx.waitUntil(cache.put(request, response.clone()));
         }
@@ -1185,13 +1393,17 @@ export default {
       const results = await Promise.all([
         Promise.resolve(checkEnvVars(env)), checkTelegram(env), checkTelegramChat(env), checkTmdb(env), checkDouban(), checkWecom(env)
       ]);
-      return new Response(buildStatusHtml(results), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      const response = new Response(buildStatusHtml(results, activePin), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      if (urlPin === activePin) {
+        response.headers.append("Set-Cookie", `rmbd_pin=${encodeURIComponent(activePin)}; Path=/; Max-Age=2592000; SameSite=Lax; Secure`);
+      }
+      return response;
     }
 
     // 路由：发送 TG 测试消息（需要 ?pin=xxx 验证）
     if (request.method === "GET" && url.pathname === "/test-tg") {
-      const pin = url.searchParams.get("pin") || "";
-      if (!pin || pin !== MANUAL_PUSH_PIN) {
+      const pin = url.searchParams.get("pin") || cookiePin;
+      if (!pin || pin !== activePin) {
         return new Response(buildRunResultHtml("PIN 错误，拒绝访问", false), { status: 403, headers: { "Content-Type": "text/html;charset=UTF-8" } });
       }
       const result = await sendTestTelegramMessage(env);
@@ -1203,8 +1415,8 @@ export default {
 
     // 路由：发送企业微信测试消息（需要 ?pin=xxx 验证）
     if (request.method === "GET" && url.pathname === "/test-wecom") {
-      const pin = url.searchParams.get("pin") || "";
-      if (!pin || pin !== MANUAL_PUSH_PIN) {
+      const pin = url.searchParams.get("pin") || cookiePin;
+      if (!pin || pin !== activePin) {
         return new Response(buildRunResultHtml("PIN 错误，拒绝访问", false), { status: 403, headers: { "Content-Type": "text/html;charset=UTF-8" } });
       }
       const result = await sendTestWecomMessage(env);
@@ -1217,7 +1429,7 @@ export default {
     // 路由：手动触发推送任务
     if (url.pathname === "/run") {
       if (request.method === "GET") {
-        return Response.redirect(new URL("/status", request.url).toString(), 302);
+        return Response.redirect(new URL(`/status?pin=${encodeURIComponent(activePin)}`, request.url).toString(), 302);
       }
 
       if (request.method === "POST") {
@@ -1229,7 +1441,7 @@ export default {
           return new Response(buildRunResultHtml("请输入 PIN", false), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
         }
 
-        if (pin !== MANUAL_PUSH_PIN) {
+        if (pin !== activePin) {
           return new Response(buildRunResultHtml("PIN 错误，无法触发推送", false), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
         }
 
@@ -1239,10 +1451,14 @@ export default {
 
         const message = newPin ? `🚀 推送已触发；PIN 已更新为 ${newPin}` : "🚀 推送已触发";
         ctx.waitUntil(runBotTask(env, request.url).catch(console.error));
-        return new Response(buildRunResultHtml(message, true), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+        
+        const nextPin = newPin || activePin;
+        const response = new Response(buildRunResultHtml(message, true), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+        response.headers.append("Set-Cookie", `rmbd_pin=${encodeURIComponent(nextPin)}; Path=/; Max-Age=2592000; SameSite=Lax; Secure`);
+        return response;
       }
     }
 
-    return Response.redirect(new URL("/status", request.url).toString(), 302);
+    return Response.redirect(new URL(`/status?pin=${encodeURIComponent(activePin)}`, request.url).toString(), 302);
   }
 } satisfies ExportedHandler<Env>;
