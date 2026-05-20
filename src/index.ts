@@ -318,7 +318,7 @@ async function fetchBankData(bank: TargetBank, env: Env): Promise<BankItem[]> {
           id: s.id || target?.id,
           media_type: s.type || target?.type || bank.type,
           title: s.title || target?.title,
-          overview: s.description || s.info || target?.description || target?.info || "", 
+          overview: s.comment || s.description || target?.description || s.info || target?.info || "", 
           rating: s.rating ? parseFloat(s.rating.value || "0") : (target?.rating ? parseFloat(target.rating.value || "0") : 0),
           douban_poster: poster,
           douban_actors: doubanActors,
@@ -787,7 +787,7 @@ async function sendSummaryToWecom(env: Env, baseUrl: string): Promise<void> {
         top3Text = `> ⚠️ 榜单数据暂不可用`;
       }
 
-      content += `### 📊 ${bank.name}\n${top3Text}\n> 🔗 [点击查看完整网页版](${targetUrl})\n\n`;
+      content += `### [📊 ${bank.name}](${targetUrl})\n${top3Text}\n\n`;
     }
 
     try {
@@ -981,7 +981,7 @@ body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background
 .header p{color:#64748b;font-size:14px;margin-top:8px}
 .badge{display:inline-flex;align-items:center;gap:6px;background:${badgeBg};border:1px solid ${badgeBorder};color:${badgeColor};border-radius:999px;padding:4px 14px;font-size:13px;font-weight:600;margin-top:12px}
 .badge-dot{width:7px;height:7px;border-radius:50%;background:currentColor;animation:pulse 1.5s infinite}
-.section-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#334155;margin-bottom:10px;padding-left:2px}
+.section-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#475569;margin-bottom:10px;padding-left:2px}
 .cards{display:flex;flex-direction:column;gap:8px;margin-bottom:28px}
 .card{display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:14px 18px;transition:background .2s}
 .card:hover{background:rgba(255,255,255,0.07)}
@@ -994,18 +994,11 @@ body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background
 .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
 .dot-ok{background:#34d399;box-shadow:0 0 8px rgba(52,211,153,0.6);animation:pulse 2s infinite}
 .dot-err{background:#f87171;box-shadow:0 0 8px rgba(248,113,113,0.5)}
-.panel{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:20px;padding:24px;margin-bottom:16px}
-.panel-title{font-size:14px;font-weight:700;color:#64748b;margin-bottom:18px;display:flex;align-items:center;gap:6px}
-.pin-wrap{position:relative;margin-bottom:12px}
-.pin-wrap input{width:100%;background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:13px 16px;color:#e2e8f0;font-size:16px;outline:none;transition:border-color .2s,box-shadow .2s;font-family:monospace;letter-spacing:3px}
-.pin-wrap input::placeholder{letter-spacing:0;font-family:inherit;color:#334155;font-size:14px}
-.pin-wrap input:focus{border-color:rgba(167,139,250,0.5);box-shadow:0 0 0 3px rgba(167,139,250,0.1)}
-.toggle-newpin{font-size:12px;color:#334155;cursor:pointer;margin-bottom:10px;text-align:right;transition:color .2s;user-select:none}
-.toggle-newpin:hover{color:#64748b}
-.newpin-wrap{display:none;margin-bottom:12px}
-.newpin-wrap.show{display:block}
-.newpin-wrap input{width:100%;background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:13px 16px;color:#e2e8f0;font-size:15px;outline:none;font-family:monospace;letter-spacing:2px}
-.newpin-wrap input::placeholder{letter-spacing:0;font-family:inherit;color:#334155;font-size:14px}
+.panel{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:20px;padding:24px;margin-bottom:24px}
+.pin-input-wrap{position:relative;margin-bottom:12px}
+.pin-input-wrap input{width:100%;background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:13px 16px;color:#e2e8f0;font-size:16px;outline:none;transition:border-color .2s,box-shadow .2s;font-family:monospace;letter-spacing:3px;text-align:center}
+.pin-input-wrap input::placeholder{letter-spacing:0;font-family:inherit;color:#334155;font-size:14px}
+.pin-input-wrap input:focus{border-color:rgba(167,139,250,0.5);box-shadow:0 0 0 3px rgba(167,139,250,0.1)}
 .btn-row{display:grid;gap:10px;margin-bottom:10px}
 .btn-row.grid3{grid-template-columns:1fr 1fr 1fr}
 button.btn,a.btn{border:none;border-radius:12px;padding:13px 8px;font-size:13px;font-weight:700;cursor:pointer;transition:all .2s;color:white;display:flex;align-items:center;justify-content:center;gap:5px;text-decoration:none;line-height:1}
@@ -1014,7 +1007,8 @@ button.btn:active,a.btn:active{transform:scale(0.97)}
 .btn-push{background:linear-gradient(135deg,#6d28d9,#2563eb)}
 .btn-tg{background:linear-gradient(135deg,#1d4ed8,#0284c7)}
 .btn-wecom{background:linear-gradient(135deg,#065f46,#059669)}
-.btn-reload{background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1)!important;color:#64748b}
+.btn-save-pin{background:linear-gradient(135deg,#f59e0b,#d97706)}
+.btn-reload{background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1)!important;color:#cbd5e1}
 .btn-reload:hover{background:rgba(255,255,255,0.1)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
 @media(max-width:480px){.btn-row.grid3{grid-template-columns:1fr 1fr}}
@@ -1033,15 +1027,6 @@ button.btn:active,a.btn:active{transform:scale(0.97)}
 
   <div class="section-label">操作中心</div>
   <div class="panel">
-    <div class="panel-title">🔐 PIN 验证</div>
-    <div class="pin-wrap">
-      <input id="pinVal" type="password" placeholder="输入 PIN 码以执行操作" autocomplete="off" value="${activePin}" />
-    </div>
-    <div class="toggle-newpin" onclick="document.getElementById('npw').classList.toggle('show');this.textContent=document.getElementById('npw').classList.contains('show')?'− 取消修改 PIN':'＋ 同时修改 PIN 码'">＋ 同时修改 PIN 码</div>
-    <div class="newpin-wrap" id="npw">
-      <input id="npVal" type="password" placeholder="新 PIN 码（留空则不修改）" autocomplete="off" />
-    </div>
-
     <div class="btn-row" style="grid-template-columns:1fr;margin-bottom:10px">
       <button class="btn btn-push" onclick="doPush()">🚀 推送全部 ${TARGET_BANKS.length} 个榜单</button>
     </div>
@@ -1051,11 +1036,49 @@ button.btn:active,a.btn:active{transform:scale(0.97)}
       <a     class="btn btn-reload"  href="/status">🔄 重新检测</a>
     </div>
   </div>
+
+  <div class="section-label">修改安全 PIN 码</div>
+  <div class="panel">
+    <div class="pin-input-wrap">
+      <input id="npVal" type="password" placeholder="输入新的 4 位安全 PIN 码" autocomplete="off" />
+    </div>
+    <div class="btn-row" style="grid-template-columns:1fr;">
+      <button class="btn btn-save-pin" onclick="doChangePin()">💾 保存修改</button>
+    </div>
+  </div>
 </div>
 <script>
-function pin(){const v=document.getElementById('pinVal').value.trim();if(!v){document.getElementById('pinVal').style.borderColor='rgba(248,113,113,0.6)';setTimeout(()=>document.getElementById('pinVal').style.borderColor='',1500);return null;}return v;}
-function doPush(){const p=pin();if(!p)return;const np=document.getElementById('npVal')?.value.trim()||'';const f=document.createElement('form');f.method='POST';f.action='/run';const a=document.createElement('input');a.name='pin';a.value=p;f.appendChild(a);if(np){const b=document.createElement('input');b.name='new_pin';b.value=np;f.appendChild(b);}document.body.appendChild(f);f.submit();}
-function doTest(path){const p=pin();if(!p)return;location.href=path+'?pin='+encodeURIComponent(p);}
+function doPush(){
+  const f=document.createElement('form');
+  f.method='POST';
+  f.action='/run';
+  document.body.appendChild(f);
+  f.submit();
+}
+function doChangePin(){
+  const np=document.getElementById('npVal').value.trim();
+  if(!np){
+    document.getElementById('npVal').style.borderColor='rgba(248,113,113,0.6)';
+    setTimeout(()=>document.getElementById('npVal').style.borderColor='',1500);
+    return;
+  }
+  const f=document.createElement('form');
+  f.method='POST';
+  f.action='/run';
+  const b=document.createElement('input');
+  b.name='new_pin';
+  b.value=np;
+  f.appendChild(b);
+  const c=document.createElement('input');
+  c.name='change_pin_only';
+  c.value='true';
+  f.appendChild(c);
+  document.body.appendChild(f);
+  f.submit();
+}
+function doTest(path){
+  location.href=path;
+}
 </script>
 </body>
 </html>`;
@@ -1436,23 +1459,29 @@ export default {
         const formData = await request.formData();
         const pin = (formData.get("pin") || "").toString().trim();
         const newPin = (formData.get("new_pin") || "").toString().trim();
+        const changePinOnly = formData.get("change_pin_only") === "true";
 
-        if (!pin) {
-          return new Response(buildRunResultHtml("请输入 PIN", false), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
-        }
-
-        if (pin !== activePin) {
-          return new Response(buildRunResultHtml("PIN 错误，无法触发推送", false), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+        const isAuthed = (pin === activePin) || (cookiePin === activePin);
+        if (!isAuthed) {
+          return new Response(buildRunResultHtml("安全验证失败，拒绝操作", false), { status: 403, headers: { "Content-Type": "text/html;charset=UTF-8" } });
         }
 
         if (newPin) {
           MANUAL_PUSH_PIN = newPin;
         }
 
-        const message = newPin ? `🚀 推送已触发；PIN 已更新为 ${newPin}` : "🚀 推送已触发";
+        if (changePinOnly) {
+          const nextPin = newPin || activePin;
+          const message = `✅ PIN 码修改成功，新 PIN 码为 ${nextPin}`;
+          const response = new Response(buildRunResultHtml(message, true), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+          response.headers.append("Set-Cookie", `rmbd_pin=${encodeURIComponent(nextPin)}; Path=/; Max-Age=2592000; SameSite=Lax; Secure`);
+          return response;
+        }
+
+        const message = "🚀 推送已触发";
         ctx.waitUntil(runBotTask(env, request.url).catch(console.error));
         
-        const nextPin = newPin || activePin;
+        const nextPin = activePin;
         const response = new Response(buildRunResultHtml(message, true), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
         response.headers.append("Set-Cookie", `rmbd_pin=${encodeURIComponent(nextPin)}; Path=/; Max-Age=2592000; SameSite=Lax; Secure`);
         return response;
