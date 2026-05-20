@@ -668,52 +668,38 @@ async function sendSummaryToWecom(env: Env, baseUrl: string): Promise<void> {
     console.error("发送企业微信开场消息异常:", err);
   }
 
-  const hasHcti = !!(env.HCTI_API_ID && env.HCTI_API_KEY);
-
   // 2. 依次发送每个榜单
   for (const bank of TARGET_BANKS) {
     const targetUrl = `${baseUrl}/view/${bank.id}?t=${Date.now()}`;
-    let imageSent = false;
+    let top3Text = "";
 
-    if (hasHcti) {
-      console.log(`尝试为榜单渲染长图: ${bank.name}`);
-      try {
-        const htmlContent = await getBankHtml(bank, env);
-        const renderRes = await renderHtmlToImage(htmlContent, env.HCTI_API_ID!, env.HCTI_API_KEY!, ".container");
-        if (renderRes.url) {
-          imageSent = await processAndSendImage(env, renderRes.url);
-        } else {
-          console.error(`为榜单 ${bank.name} 渲染图片失败: ${renderRes.error}`);
-        }
-      } catch (err) {
-        console.error(`为榜单 ${bank.name} 渲染图片或发送失败，将退回到文本链接形式:`, err);
+    try {
+      const items = await fetchBankData(bank, env);
+      if (items.length > 0) {
+        const top3 = items.slice(0, 3);
+        top3Text = top3.map((item, i) => {
+          const title = item.title || item.name || "未知";
+          const score = item.vote_average || item.rating || 0;
+          const scoreText = score > 0 ? ` (${score.toFixed(1)}分)` : "";
+          return `> ${i + 1}. **${title}**${scoreText}`;
+        }).join("\n");
       }
+    } catch (e) {
+      console.error(`获取榜单 ${bank.name} Top 3 失败:`, e);
     }
 
-    if (imageSent) {
-      const content = `**${bank.name}**\n> [📋 点击查看完整网页版](${targetUrl})`;
-      try {
-        await fetch(env.WECOM_WEBHOOK_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ msgtype: "markdown", markdown: { content } })
-        });
-      } catch (err) {
-        console.error(`发送企微后续链接失败: ${bank.name}`, err);
-      }
-    } else {
-      const content = `**${bank.name}**\n> [📋 查看完整榜单](${targetUrl})`;
-      try {
-        const res = await fetch(env.WECOM_WEBHOOK_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ msgtype: "markdown", markdown: { content } })
-        });
-        if (!res.ok) console.error(`企业微信推送失败: ${bank.name}`, await res.text());
-      } catch (err) {
-        console.error(`企业微信推送异常: ${bank.name}`, err);
-      }
+    const content = `### 📊 ${bank.name}\n${top3Text ? top3Text + "\n" : ""}>\n> [📋 点击查看完整网页版](${targetUrl})`;
+    try {
+      const res = await fetch(env.WECOM_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ msgtype: "markdown", markdown: { content } })
+      });
+      if (!res.ok) console.error(`企业微信推送失败: ${bank.name}`, await res.text());
+    } catch (err) {
+      console.error(`企业微信推送异常: ${bank.name}`, err);
     }
+
     // 企业微信限流：20条/分钟，间隔 3s 保险
     await new Promise(r => setTimeout(r, 3000));
   }
@@ -830,8 +816,6 @@ async function checkDouban(): Promise<CheckResult> {
 async function checkWecom(env: Env): Promise<CheckResult> {
   if (!env.WECOM_WEBHOOK_URL) return { name: "企业微信 Webhook", icon: "💼", ok: false, detail: "未配置", latency: 0 };
   const start = Date.now();
-  const hasHcti = !!(env.HCTI_API_ID && env.HCTI_API_KEY);
-  const hctiStr = hasHcti ? " (图片渲染已启用)" : " (仅文本，图片渲染未配置)";
   try {
     // 发送一个空 body 触发格式错误响应，只要 HTTP 通则 URL 可达
     const res = await fetch(env.WECOM_WEBHOOK_URL, {
@@ -842,15 +826,15 @@ async function checkWecom(env: Env): Promise<CheckResult> {
     const json: any = await res.json();
     // errcode=0 表示成功；其他 errcode 说明 URL 可达但参数有误
     if (json.errcode === 0) {
-      return { name: "企业微信 Webhook", icon: "💼", ok: true, detail: "连接正常" + hctiStr, latency: Date.now() - start };
+      return { name: "企业微信 Webhook", icon: "💼", ok: true, detail: "连接正常", latency: Date.now() - start };
     }
     // content 为空时企业微信返回 errcode=93000，URL 依然可达
     if (res.ok) {
-      return { name: "企业微信 Webhook", icon: "💼", ok: true, detail: `URL 可达 (errcode=${json.errcode})${hctiStr}`, latency: Date.now() - start };
+      return { name: "企业微信 Webhook", icon: "💼", ok: true, detail: `URL 可达 (errcode=${json.errcode})`, latency: Date.now() - start };
     }
-    return { name: "企业微信 Webhook", icon: "💼", ok: false, detail: `HTTP ${res.status}${hctiStr}`, latency: Date.now() - start };
+    return { name: "企业微信 Webhook", icon: "💼", ok: false, detail: `HTTP ${res.status}`, latency: Date.now() - start };
   } catch (e: any) {
-    return { name: "企业微信 Webhook", icon: "💼", ok: false, detail: `连接失败: ${e.message}${hctiStr}`, latency: Date.now() - start };
+    return { name: "企业微信 Webhook", icon: "💼", ok: false, detail: `连接失败: ${e.message}`, latency: Date.now() - start };
   }
 }
 
@@ -994,72 +978,19 @@ async function sendTestTelegramMessage(env: Env): Promise<{ ok: boolean; detail:
   } catch (e: any) { return { ok: false, detail: e.message }; }
 }
 
-// 发送企业微信测试消息 (如果配置了 HCTI，则同时发送渲染图测试)
 async function sendTestWecomMessage(env: Env): Promise<{ ok: boolean; detail: string }> {
   if (!env.WECOM_WEBHOOK_URL) return { ok: false, detail: "未配置 WECOM_WEBHOOK_URL" };
   try {
-    const hasHcti = !!(env.HCTI_API_ID && env.HCTI_API_KEY);
-    let imageSent = false;
-    let imgError = "";
-
-    if (hasHcti) {
-      const testHtml = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="UTF-8">
-          <style>
-            body { background: #070a14; color: #e2e8f0; font-family: "PingFang SC", "Microsoft YaHei", sans-serif; padding: 30px; text-align: center; margin: 0; }
-            .card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 30px; max-width: 400px; margin: 0 auto; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
-            h1 { font-size: 24px; color: #a78bfa; margin-bottom: 10px; font-weight: bold; }
-            p { font-size: 14px; color: #94a3b8; margin-bottom: 20px; line-height: 1.6; }
-            .badge { background: #34d399; color: #070a14; padding: 6px 16px; border-radius: 20px; font-weight: bold; display: inline-block; font-size: 12px; letter-spacing: 1px; }
-          </style>
-        </head>
-        <body>
-          <div class="card">
-            <h1>🎬 RMBD 企微长图渲染测试</h1>
-            <p>如果您收到了这张精美卡片长图，说明 HCTI 高清渲染服务与企业微信 Webhook 大图推送通道已全部调试成功！</p>
-            <div class="badge">TEST SUCCESS</div>
-          </div>
-        </body>
-        </html>
-      `;
-
-      const renderRes = await renderHtmlToImage(testHtml, env.HCTI_API_ID!, env.HCTI_API_KEY!, ".card");
-      if (renderRes.url) {
-        imageSent = await processAndSendImage(env, renderRes.url);
-        if (!imageSent) {
-          imgError = "MD5/Base64 处理或企业微信群接口返回错误";
-        }
-      } else {
-        imgError = `HCTI 接口渲染失败: ${renderRes.error || "未知原因"}`;
-      }
-    }
-
-    if (imageSent) {
-      await fetch(env.WECOM_WEBHOOK_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          msgtype: "markdown",
-          markdown: { content: `## ✅ RMBD 企业微信测试成功\n> 🎨 高清长图与后续链接已同步成功推送！` }
-        })
-      });
-      return { ok: true, detail: "图片与文字测试消息均发送成功" };
-    } else {
-      const detailStr = hasHcti ? ` (图片失败: ${imgError})` : "";
-      const res = await fetch(env.WECOM_WEBHOOK_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          msgtype: "markdown",
-          markdown: { content: `## ✅ RMBD 企业微信测试成功\n> 💼 消息推送通道畅通！${detailStr}` }
-        })
-      });
-      const json: any = await res.json();
-      return json.errcode === 0 ? { ok: true, detail: "已成功降级发送文字测试消息" + detailStr } : { ok: false, detail: `errcode=${json.errcode}: ${json.errmsg}` };
-    }
+    const res = await fetch(env.WECOM_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        msgtype: "markdown",
+        markdown: { content: `## ✅ RMBD 企业微信测试成功\n> 💼 消息推送通道畅通！网页版预览链接已全部打通。` }
+      })
+    });
+    const json: any = await res.json();
+    return json.errcode === 0 ? { ok: true, detail: "测试消息发送成功" } : { ok: false, detail: `errcode=${json.errcode}: ${json.errmsg}` };
   } catch (e: any) { return { ok: false, detail: e.message }; }
 }
 
