@@ -506,7 +506,7 @@ interface RenderResult {
 }
 
 // 调用 HtmlCssToImage API 渲染 HTML 为图片 URL
-async function renderHtmlToImage(htmlContent: string, apiId: string, apiKey: string): Promise<RenderResult> {
+async function renderHtmlToImage(htmlContent: string, apiId: string, apiKey: string, selector?: string): Promise<RenderResult> {
   try {
     const url = "https://hcti.io/v1/image";
     const auth = btoa(`${apiId}:${apiKey}`);
@@ -518,7 +518,7 @@ async function renderHtmlToImage(htmlContent: string, apiId: string, apiKey: str
       },
       body: JSON.stringify({
         html: htmlContent,
-        viewport_width: 800,
+        selector: selector,
         format: "jpeg"
       })
     });
@@ -679,7 +679,7 @@ async function sendSummaryToWecom(env: Env, baseUrl: string): Promise<void> {
       console.log(`尝试为榜单渲染长图: ${bank.name}`);
       try {
         const htmlContent = await getBankHtml(bank, env);
-        const renderRes = await renderHtmlToImage(htmlContent, env.HCTI_API_ID!, env.HCTI_API_KEY!);
+        const renderRes = await renderHtmlToImage(htmlContent, env.HCTI_API_ID!, env.HCTI_API_KEY!, ".container");
         if (renderRes.url) {
           imageSent = await processAndSendImage(env, renderRes.url);
         } else {
@@ -1026,7 +1026,7 @@ async function sendTestWecomMessage(env: Env): Promise<{ ok: boolean; detail: st
         </html>
       `;
 
-      const renderRes = await renderHtmlToImage(testHtml, env.HCTI_API_ID!, env.HCTI_API_KEY!);
+      const renderRes = await renderHtmlToImage(testHtml, env.HCTI_API_ID!, env.HCTI_API_KEY!, ".card");
       if (renderRes.url) {
         imageSent = await processAndSendImage(env, renderRes.url);
         if (!imageSent) {
