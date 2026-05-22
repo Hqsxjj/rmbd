@@ -57,6 +57,7 @@ interface Env {
   TG_CHAT_ID: string;
   WECOM_WEBHOOK_URL: string;
   PIN?: string;
+  BASE_URL?: string;
   BOT_CONFIG?: KVNamespace;
 }
 
@@ -66,6 +67,7 @@ interface BotConfig {
   TG_CHAT_ID: string;
   WECOM_WEBHOOK_URL: string;
   PIN?: string;
+  BASE_URL?: string;
 }
 
 async function getMergedConfig(env: Env): Promise<BotConfig> {
@@ -74,7 +76,8 @@ async function getMergedConfig(env: Env): Promise<BotConfig> {
     "TG_BOT_TOKEN",
     "TG_CHAT_ID",
     "WECOM_WEBHOOK_URL",
-    "PIN"
+    "PIN",
+    "BASE_URL"
   ];
   const config = {} as any;
   for (const key of keys) {
@@ -756,8 +759,15 @@ async function runBotTask(config: BotConfig, requestUrl: string): Promise<void> 
     return;
   }
 
-  const urlObj = new URL(requestUrl);
-  const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
+  let baseUrl = (config.BASE_URL || "").trim();
+  if (!baseUrl) {
+    try {
+      const urlObj = new URL(requestUrl);
+      baseUrl = `${urlObj.protocol}//${urlObj.host}`;
+    } catch (e) {
+      baseUrl = "https://rmbd.workers.dev";
+    }
+  }
 
   // 并发推送 Telegram 和企业微信
   await Promise.all([
@@ -1507,6 +1517,20 @@ function buildAdminHtml(config: BotConfig, activePin: string): string {
       </div>
     </div>
 
+    <!-- 4. 基准域名配置 -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">🌐</span>
+        <h2 class="card-title">系统基准域名 (BASE_URL) 配置</h2>
+        <span class="card-desc">自动检测</span>
+      </div>
+      <div class="form-group">
+        <label for="BASE_URL">系统部署基准 URL</label>
+        <div class="input-desc">定时 Cron 触发推送时，用于生成网页的直达链接。系统会自动识别，但您也可在此手动修改覆盖以配置自定义反向代理域名。</div>
+        <input type="text" id="BASE_URL" name="BASE_URL" value="${config.BASE_URL || ''}" placeholder="https://your-worker.workers.dev" autocomplete="off" />
+      </div>
+    </div>
+
     <!-- 5. 安全 PIN 码 -->
     <div class="card">
       <div class="card-header">
@@ -1534,7 +1558,8 @@ function buildAdminHtml(config: BotConfig, activePin: string): string {
 export default {
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     const config = await getMergedConfig(env);
-    ctx.waitUntil(runBotTask(config, "https://rmbd.workers.dev"));
+    const baseUrl = config.BASE_URL || "https://rmbd.workers.dev";
+    ctx.waitUntil(runBotTask(config, baseUrl));
   },
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -1572,6 +1597,13 @@ export default {
 
     const config = await getMergedConfig(env);
     const activePin = config.PIN || MANUAL_PUSH_PIN;
+
+    // 自动感知部署的 Base URL 并异步写入 KV 以供定时 Cron 任务正确调度
+    const currentBaseUrl = `${url.protocol}//${url.host}`;
+    if (env.BOT_CONFIG && !config.BASE_URL) {
+      ctx.waitUntil(env.BOT_CONFIG.put("BASE_URL", currentBaseUrl).catch(err => console.error("自动感知 Base URL 写入失败:", err)));
+      config.BASE_URL = currentBaseUrl;
+    }
 
     // 从 Cookie 中获取 PIN
     const cookieHeader = request.headers.get("Cookie") || "";
@@ -1630,7 +1662,8 @@ export default {
         "TG_BOT_TOKEN",
         "TG_CHAT_ID",
         "WECOM_WEBHOOK_URL",
-        "PIN"
+        "PIN",
+        "BASE_URL"
       ];
 
       for (const key of keysToSave) {
