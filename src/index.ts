@@ -1558,8 +1558,9 @@ function buildAdminHtml(config: BotConfig, activePin: string): string {
 export default {
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     const config = await getMergedConfig(env);
-    const baseUrl = config.BASE_URL || "https://rmbd.workers.dev";
-    ctx.waitUntil(runBotTask(config, baseUrl));
+    // 与手动触发机制完全一致：直接传 URL 给 runBotTask，
+    // 由其内部统一处理 baseUrl 优先级：config.BASE_URL → URL 解析 → fallback
+    ctx.waitUntil(runBotTask(config, "https://rmbd.workers.dev").catch(console.error));
   },
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
