@@ -21,7 +21,9 @@
 	// 必填: TMDB_API_KEY, TG_BOT_TOKEN, TG_CHAT_ID
 	// 可选: WECOM_WEBHOOK_URL (企业微信机器人 Webhook，不填则跳过企业微信推送)
 	// ==========================================
-	"vars": {},
+	"vars": {
+		"BASE_URL": "http://bd.6080808.xyz"
+	},
 	"kv_namespaces": [
 		{
 			"binding": "BOT_CONFIG",
