@@ -22,7 +22,7 @@
 	// 可选: WECOM_WEBHOOK_URL (企业微信机器人 Webhook，不填则跳过企业微信推送)
 	// ==========================================
 	"vars": {
-		"BASE_URL": "http://bd.6080808.xyz"
+		"BASE_URL": ""
 	},
 	"kv_namespaces": [
 		{
